@@ -7,6 +7,8 @@ from einops import rearrange, repeat
 from typing import Callable
 from beartype import beartype
 
+from inspect import getargspec
+
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
 from classifier_free_guidance_pytorch.t5 import t5_encode_text
 
@@ -22,6 +24,10 @@ def classifier_free_guidance(
     cond_scale: float = 3.,
     cond_drop_prob_keyname: str = COND_DROP_KEY_NAME
 ):
+
+    fn_args, _ = getargspec(fn)
+    assert cond_drop_prob_keyname in fn_args, f'{cond_drop_prob_keyname} must be a keyword argument on the method, controlling the condition drop probability'
+
     @wraps(fn)
     def inner(*args, **kwargs):
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
