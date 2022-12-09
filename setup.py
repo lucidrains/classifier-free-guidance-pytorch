@@ -17,6 +17,7 @@ setup(
     'text conditioning and guidance'
   ],
   install_requires=[
+    'beartype',
     'einops>=0.6',
     'open-clip-torch>=2.0.0,<3.0.0',
     'torch>=1.6',

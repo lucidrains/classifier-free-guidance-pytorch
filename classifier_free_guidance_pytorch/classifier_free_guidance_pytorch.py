@@ -1,10 +1,41 @@
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+from functools import wraps
 from einops import rearrange, repeat
+
+from typing import Callable
+from beartype import beartype
 
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
 from classifier_free_guidance_pytorch.t5 import t5_encode_text
+
+# constants
+
+COND_DROP_KEY_NAME = '__cond_drop_prob'
+
+# classifier free guidance main logic
+
+@beartype
+def classifier_free_guidance(
+    fn: Callable,
+    cond_scale: float = 3.,
+    cond_drop_prob_keyname: str = COND_DROP_KEY_NAME
+):
+    @wraps(fn)
+    def inner(*args, **kwargs):
+        kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
+        kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
+
+        logits = fn(*args, **kwargs_without_cond_dropout)
+
+        if cond_scale <= 1:
+            return logits
+
+        null_logits = fn(*args, **kwargs_with_cond_dropout)
+        return null_logits + (logits - null_logits) * cond_scale
+
+    return inner
 
 # attention
 
