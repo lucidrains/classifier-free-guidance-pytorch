@@ -16,6 +16,16 @@ from classifier_free_guidance_pytorch.t5 import t5_encode_text
 
 COND_DROP_KEY_NAME = '__cond_drop_prob'
 
+# tensor helpers
+
+def prob_mask_like(shape, prob, device):
+    if prob == 1:
+        return torch.ones(shape, device = device, dtype = torch.bool)
+    elif prob == 0:
+        return torch.zeros(shape, device = device, dtype = torch.bool)
+    else:
+        return torch.zeros(shape, device = device).float().uniform_(0, 1) < prob
+
 # classifier free guidance main logic
 
 @beartype
