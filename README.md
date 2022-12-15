@@ -49,7 +49,7 @@ second_conditioned = second_condition_fn(second_hidden)
 
 ## Todo
 
-- [x] complete film conditioning, without classifier free guidance
+- [x] complete film conditioning, without classifier free guidance (used <a href="https://github.com/lucidrains/robotic-transformer-pytorch/blob/main/robotic_transformer_pytorch/robotic_transformer_pytorch.py">here</a>)
 
 - [ ] add classifier free guidance for film conditioning
 - [ ] complete cross attention conditioning
