@@ -58,6 +58,7 @@ def classifier_free_guidance(
 
     @wraps(fn)
     def inner(
+        self,
         *args,
         cond_scale: float = 1.,
         **kwargs
@@ -65,12 +66,13 @@ def classifier_free_guidance(
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
         kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
 
-        logits = fn(*args, **kwargs_without_cond_dropout)
+        logits = fn(self, *args, **kwargs_without_cond_dropout)
 
         if cond_scale <= 1:
             return logits
 
-        null_logits = fn(*args, **kwargs_with_cond_dropout)
+        assert not self.training, 'condition scaling can only be invoked at evaluation, not training'
+        null_logits = fn(self, *args, **kwargs_with_cond_dropout)
         return null_logits + (logits - null_logits) * cond_scale
 
     return inner
