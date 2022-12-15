@@ -301,6 +301,9 @@ class FiLM(nn.Module):
             nn.Linear(hidden_dim * 4, hidden_dim * 2)
         )
 
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
+
     def forward(self, conditions, hiddens):
         scale, shift = self.net(conditions).chunk(2, dim = -1)
         assert scale.shape[-1] == hiddens.shape[-1], f'unexpected hidden dimesion {hiddens.shape[-1]} used for conditioning'
