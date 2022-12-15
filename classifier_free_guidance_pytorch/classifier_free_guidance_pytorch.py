@@ -9,7 +9,7 @@ from einops import rearrange, repeat, pack, unpack
 from typing import Callable, Tuple, Optional, List
 from beartype import beartype
 
-from inspect import getargspec
+from inspect import getfullargspec
 
 from classifier_free_guidance_pytorch.t5 import T5Adapter
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
@@ -50,15 +50,18 @@ def prob_mask_like(shape, prob, device):
 @beartype
 def classifier_free_guidance(
     fn: Callable,
-    cond_scale: float = 3.,
     cond_drop_prob_keyname: str = COND_DROP_KEY_NAME
 ):
 
-    fn_args, _ = getargspec(fn)
+    fn_args = getfullargspec(fn).args
     assert cond_drop_prob_keyname in fn_args, f'{cond_drop_prob_keyname} must be a keyword argument on the method, controlling the condition drop probability'
 
     @wraps(fn)
-    def inner(*args, **kwargs):
+    def inner(
+        *args,
+        cond_scale: float = 1.,
+        **kwargs
+    ):
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
         kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
 
