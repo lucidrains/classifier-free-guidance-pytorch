@@ -20,6 +20,7 @@ setup(
   install_requires=[
     'beartype',
     'einops>=0.6',
+    'ftfy',
     'open-clip-torch>=2.8.0',
     'torch>=1.6',
     'transformers'
