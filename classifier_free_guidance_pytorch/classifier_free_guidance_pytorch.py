@@ -16,12 +16,15 @@ from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
 
 # constants
 
-COND_DROP_KEY_NAME = '__cond_drop_prob'
+COND_DROP_KEY_NAME = 'cond_drop_prob'
 
 # helper functions
 
 def exists(val):
     return val is not None
+
+def default(val, d):
+    return val if exists(val) else d
 
 def cast_tuple(val, length = 1):
     return val if isinstance(val, tuple) else ((val,) * length)
@@ -313,6 +316,7 @@ class TextConditioner(nn.Module):
         hidden_dims: Tuple[int, ...],
         model_types = 't5',
         model_names = None,
+        cond_drop_prob = 0.,
         hiddens_channel_first = True
     ):
         super().__init__()
@@ -338,8 +342,14 @@ class TextConditioner(nn.Module):
         self.hidden_dims = hidden_dims
         self.hiddens_channel_first = hiddens_channel_first # whether hiddens to be conditioned is channel first or last
 
+        self.cond_drop_prob = cond_drop_prob
+
+        total_latent_dim = sum(self.latent_dims)
+
         for hidden_dim in hidden_dims:
-            self.conditioners.append(FiLM(sum(self.latent_dims), hidden_dim))
+            self.conditioners.append(FiLM(total_latent_dim, hidden_dim))
+
+        self.null_text_embed = nn.Parameter(torch.randn(total_latent_dim))
 
         self.register_buffer('_device_param', torch.tensor(0.), persistent = False)
 
@@ -361,10 +371,11 @@ class TextConditioner(nn.Module):
         self,
         texts: Optional[List[str]] = None,
         text_embeds: Optional[List[torch.Tensor]] = None,
-
+        cond_drop_prob = None,
     ) -> Tuple[Callable, ...]:
 
         assert exists(texts) ^ exists(text_embeds)
+        cond_drop_prob = default(cond_drop_prob, self.cond_drop_prob)
 
         batch, device = len(texts), self.device
 
@@ -372,6 +383,17 @@ class TextConditioner(nn.Module):
             text_embeds = self.embed_texts(texts)
 
         text_embeds = torch.cat(text_embeds, dim = -1)
+
+        if cond_drop_prob > 0.:
+            prob_keep_mask = prob_mask_like((batch, 1, 1), 1. - cond_drop_prob, device = device)
+            null_text_embeds = rearrange(self.null_text_embed, 'd -> 1 1 d')
+
+            text_embeds = torch.where(
+                prob_keep_mask,
+                text_embeds,
+                null_text_embeds
+            )
+
 
         wrapper_fn = rearrange_channel_first if self.hiddens_channel_first else rearrange_channel_last
 

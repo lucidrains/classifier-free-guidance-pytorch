@@ -28,7 +28,8 @@ from classifier_free_guidance_pytorch import TextConditioner
 text_conditioner = TextConditioner(
     model_types = 't5',    
     hidden_dims = (256, 512),
-    hiddens_channel_first = False
+    hiddens_channel_first = False,
+    cond_drop_prob = 0.2  # conditional dropout 20% of the time, must be greater than 0. to unlock classifier free guidance
 ).cuda()
 
 # pass in your text as a List[str], and get back a List[callable]
@@ -50,8 +51,8 @@ second_conditioned = second_condition_fn(second_hidden)
 ## Todo
 
 - [x] complete film conditioning, without classifier free guidance (used <a href="https://github.com/lucidrains/robotic-transformer-pytorch/blob/main/robotic_transformer_pytorch/robotic_transformer_pytorch.py">here</a>)
+- [x] add classifier free guidance for film conditioning
 
-- [ ] add classifier free guidance for film conditioning
 - [ ] complete cross attention conditioning
 - [ ] complete auto perceiver resampler
 
