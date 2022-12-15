@@ -3,6 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'classifier-free-guidance-pytorch',
   packages = find_packages(exclude=[]),
+  include_package_data = True,
   version = '0.0.1',
   license='MIT',
   description = 'Classifier Free Guidance - Pytorch',
@@ -19,7 +20,7 @@ setup(
   install_requires=[
     'beartype',
     'einops>=0.6',
-    'open-clip-torch>=2.0.0,<3.0.0',
+    'open-clip-torch>=2.8.0',
     'torch>=1.6',
     'transformers'
   ],
