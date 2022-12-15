@@ -119,7 +119,12 @@ class SimpleTokenizer(object):
             bpe_tokens.extend(self.encoder[bpe_token] for bpe_token in self.bpe(token).split(' '))
         return bpe_tokens
 
-    def decode(self, tokens, remove_start_end = True, pad_tokens = set()):
+    def decode(
+        self,
+        tokens,
+        remove_start_end = True,
+        pad_tokens = set()
+    ):
         if torch.is_tensor(tokens):
             tokens = tokens.tolist()
 
@@ -129,11 +134,18 @@ class SimpleTokenizer(object):
         text = bytearray([self.byte_decoder[c] for c in text]).decode('utf-8', errors="replace").replace('</w>', ' ')
         return text
 
-    def tokenize(self, texts, context_length = 256, truncate_text = False):
+    def tokenize(
+        self,
+        texts,
+        context_length = 256,
+        truncate_text = False
+    ):
         if isinstance(texts, str):
             texts = [texts]
 
         all_tokens = [self.encode(text) for text in texts]
+        max_context_length = max([len(tokens) for tokens in all_tokens])
+
         result = torch.zeros(len(all_tokens), context_length, dtype=torch.long)
 
         for i, tokens in enumerate(all_tokens):
@@ -144,6 +156,6 @@ class SimpleTokenizer(object):
                     raise RuntimeError(f"Input {texts[i]} is too long for context length {context_length}")
             result[i, :len(tokens)] = torch.tensor(tokens)
 
-        return result
+        return result, max_context_length
 
 tokenizer = SimpleTokenizer()

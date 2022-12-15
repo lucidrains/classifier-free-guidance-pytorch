@@ -12,6 +12,49 @@ It is clear now that text guidance is the ultimate interface to models. This rep
 
 - <a href="https://github.com/mlfoundations/open_clip">OpenCLIP</a> for providing SOTA open sourced CLIP models. The eDiff model sees immense improvements by combining the T5 embeddings with CLIP text embeddings
 
+
+## Install
+
+```bash
+$ pip install classifier-free-guidance-pytorch
+```
+
+## Usage
+
+```python
+import torch
+from classifier_free_guidance_pytorch import TextConditioner
+
+text_conditioner = TextConditioner(
+    model_types = 't5',    
+    hidden_dims = (256, 512),
+    hiddens_channel_first = False
+).cuda()
+
+# pass in your text as a List[str], and get back a List[callable]
+# each callable function receives the hiddens in the dimensions listed at init (hidden_dims)
+
+first_condition_fn, second_condition_fn = text_conditioner(['a dog chasing after a ball'])
+
+# these hiddens will be in the direct flow of your model, say in a unet
+
+first_hidden = torch.randn(1, 16, 256).cuda()
+second_hidden = torch.randn(1, 32, 512).cuda()
+
+# conditioned features
+
+first_conditioned = first_condition_fn(first_hidden)
+second_conditioned = second_condition_fn(second_hidden)
+```
+
+## Todo
+
+- [x] complete film conditioning, without classifier free guidance
+
+- [ ] add classifier free guidance for film conditioning
+- [ ] complete cross attention conditioning
+- [ ] complete auto perceiver resampler
+
 ## Citations
 
 ```bibtex

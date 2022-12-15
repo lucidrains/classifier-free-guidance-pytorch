@@ -1,5 +1,3 @@
-from collections import namedtuple
-
 from beartype import beartype
 from typing import List
 
@@ -9,8 +7,6 @@ import torch.nn.functional as F
 
 import open_clip
 from classifier_free_guidance_pytorch.tokenizer import tokenizer
-
-EmbeddedText = namedtuple('EmbedTextReturn', ['text_embed', 'text_encodings'])
 
 def l2norm(t):
     return F.normalize(t, dim = -1)
@@ -24,6 +20,8 @@ class OpenClipAdapter():
         clip, _, preprocess = open_clip.create_model_and_transforms(name, pretrained = pretrained)
 
         self.clip = clip
+        clip.eval()
+
         self.tokenizer = tokenizer
 
         self.eos_id = 49407
@@ -60,19 +58,29 @@ class OpenClipAdapter():
     @beartype
     def embed_text(
         self,
-        text: List[str]
+        texts: List[str],
+        return_text_encodings = False,
+        output_device = None
     ):
-        text = self.tokenizer.tokenize(text)
+        texts, max_length = self.tokenizer.tokenize(texts)
+        texts = texts[..., :self.max_text_len]
 
-        text = text[..., :self.max_text_len]
+        text_embeds = self.clip.encode_text(texts)
 
-        is_eos_id = (text == self.eos_id)
+        texts = texts[..., :max_length]
+
+        if not return_text_encodings:
+            return l2norm(text_embeds).to(output_device)
+
+        is_eos_id = (texts == self.eos_id)
         text_mask_excluding_eos = is_eos_id.cumsum(dim = -1) == 0
         text_mask = F.pad(text_mask_excluding_eos, (1, -1), value = True)
+        text_mask = text_mask & (texts != 0)
+
         assert not self.cleared
 
-        text_embed = self.clip.encode_text(text)
-        text_encodings = self.text_encodings
+        text_encodings = self.text_encodings[:, :max_length]
         text_encodings = text_encodings.masked_fill(~text_mask[..., None], 0.)
         del self.text_encodings
-        return EmbeddedText(l2norm(text_embed.float()), text_encodings.float())
+
+        return text_encodings.float().to(output_device)

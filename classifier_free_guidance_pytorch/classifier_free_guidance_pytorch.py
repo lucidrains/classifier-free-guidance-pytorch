@@ -1,20 +1,33 @@
+from functools import wraps, partial
+
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
-from functools import wraps
-from einops import rearrange, repeat
 
-from typing import Callable
+from einops import rearrange, repeat, pack, unpack
+
+from typing import Callable, Tuple, Optional, List
 from beartype import beartype
 
 from inspect import getargspec
 
+from classifier_free_guidance_pytorch.t5 import T5Adapter
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
-from classifier_free_guidance_pytorch.t5 import t5_encode_text
 
 # constants
 
 COND_DROP_KEY_NAME = '__cond_drop_prob'
+
+# helper functions
+
+def cast_tuple(val, length = 1):
+    return val if isinstance(val, tuple) else ((val,) * length)
+
+def pack_one(x, pattern):
+    return pack([x], pattern)
+
+def unpack_one(x, ps, pattern):
+    return unpack(x, ps, pattern)[0]
 
 # tensor helpers
 
@@ -227,7 +240,6 @@ class Attention(nn.Module):
 
         sim = einsum('b h i d, b j d -> b h i j', q, k)
 
-
         if exists(mask):
             mask = F.pad(mask, (self.num_null_kv, 0), value = True)
             mask = rearrange(mask, 'b j -> b 1 1 j')
@@ -240,15 +252,112 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
+# dimension adapters
+
+def rearrange_channel_last(fn):
+    @wraps(fn)
+    def inner(hiddens):
+        hiddens, ps = pack_one(hiddens, 'b * d')
+        conditioned = fn(hiddens)
+        return unpack_one(conditioned, ps, 'b * d')
+    return inner
+
+def rearrange_channel_first(fn):
+    """ will adapt shape of (batch, feature, ...) for conditioning """
+
+    @wraps(fn)
+    def inner(hiddens):
+        hiddens, ps = pack_one(hiddens, 'b d *')
+        hiddens = rearrange(hiddens, 'b d n -> b n d')
+        conditioned =  fn(hiddens)
+        conditioned = rearrange(conditioned, 'b n d -> b d n')
+        return unpack_one(conditioned, ps, 'b d *')
+
+    return inner
+
+# conditioning modules
+
+class FiLM(nn.Module):
+    def __init__(
+        self,
+        dim,
+        hidden_dim
+    ):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim, hidden_dim * 4),
+            nn.SiLU(),
+            nn.Linear(hidden_dim * 4, hidden_dim * 2)
+        )
+
+    def forward(self, conditions, hiddens):
+        scale, shift = self.net(conditions).chunk(2, dim = -1)
+        assert scale.shape[-1] == hiddens.shape[-1], f'unexpected hidden dimesion {hiddens.shape[-1]} used for conditioning'
+        return hiddens * (scale + 1) + shift
+
 # text conditioning
 
+CONDITION_CONFIG = dict(
+    t5 = T5Adapter,
+    clip = OpenClipAdapter
+)
+
+@beartype
 class TextConditioner(nn.Module):
     def __init__(
         self,
         *,
-        dim
+        hidden_dims: Tuple[int, ...],
+        model_types = 't5',
+        model_names = None,
+        hiddens_channel_first = True
     ):
         super().__init__()
+        model_types = cast_tuple(model_types)
+        model_names = cast_tuple(model_names, length = len(model_types))
 
-    def forward(self, x):
-        return x
+        assert len(model_types) == len(model_names)
+        assert all([model_type in CONDITION_CONFIG.keys() for model_type in model_types])
+
+        text_models = []
+
+        for model_type, model_name in zip(model_types, model_names):
+            klass = CONDITION_CONFIG.get(model_type)
+            model = klass(model_name)
+
+            text_models.append(model)
+
+        self.text_models = text_models
+        self.latent_dims = [model.dim_latent for model in text_models]
+
+        self.conditioners = nn.ModuleList([])
+
+        self.hidden_dims = hidden_dims
+        self.hiddens_channel_first = hiddens_channel_first # whether hiddens to be conditioned is channel first or last
+
+        for hidden_dim in hidden_dims:
+            self.conditioners.append(FiLM(sum(self.latent_dims), hidden_dim))
+
+        self.register_buffer('_device_param', torch.tensor(0.), persistent = False)
+
+    @property
+    def device(self):
+        return next(self.buffers()).device
+
+    def forward(
+        self,
+        texts: List[str]
+    ) -> Tuple[Callable, ...]:
+
+        batch, device = len(texts), self.device
+
+        text_embeds = []
+        for text_model in self.text_models:
+            text_embed = text_model.embed_text(texts, output_device = device)
+            text_embeds.append(text_embed)
+
+        text_embeds = torch.cat(text_embeds, dim = -1)
+
+        wrapper_fn = rearrange_channel_first if self.hiddens_channel_first else rearrange_channel_last
+
+        return tuple(wrapper_fn(partial(cond, text_embeds)) for cond in self.conditioners)
