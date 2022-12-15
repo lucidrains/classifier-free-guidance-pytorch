@@ -383,7 +383,11 @@ class TextConditioner(nn.Module):
     ) -> Tuple[Callable, ...]:
 
         assert exists(texts) ^ exists(text_embeds)
-        cond_drop_prob = default(cond_drop_prob, self.cond_drop_prob)
+
+        if self.training:
+            cond_drop_prob = default(cond_drop_prob, self.cond_drop_prob)
+        else:
+            assert exists(cond_drop_prob), 'when not training, cond_drop_prob must be explicitly set'
 
         batch, device = len(texts), self.device
 
