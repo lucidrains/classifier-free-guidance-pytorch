@@ -350,11 +350,10 @@ class TextConditioner(nn.Module):
     ) -> Tuple[Callable, ...]:
 
         batch, device = len(texts), self.device
-
         text_embeds = []
         for text_model in self.text_models:
-            text_embed = text_model.embed_text(texts, output_device = device)
-            text_embeds.append(text_embed)
+            text_embed = text_model.embed_text(texts)
+            text_embeds.append(text_embed.to(device))
 
         text_embeds = torch.cat(text_embeds, dim = -1)
 
