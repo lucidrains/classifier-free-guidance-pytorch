@@ -20,6 +20,9 @@ COND_DROP_KEY_NAME = '__cond_drop_prob'
 
 # helper functions
 
+def exists(val):
+    return val is not None
+
 def cast_tuple(val, length = 1):
     return val if isinstance(val, tuple) else ((val,) * length)
 
@@ -344,16 +347,29 @@ class TextConditioner(nn.Module):
     def device(self):
         return next(self.buffers()).device
 
-    def forward(
-        self,
-        texts: List[str]
-    ) -> Tuple[Callable, ...]:
+    def embed_texts(self, texts: List[str]):
+        device = self.device
 
-        batch, device = len(texts), self.device
         text_embeds = []
         for text_model in self.text_models:
             text_embed = text_model.embed_text(texts)
             text_embeds.append(text_embed.to(device))
+
+        return text_embeds
+
+    def forward(
+        self,
+        texts: Optional[List[str]] = None,
+        text_embeds: Optional[List[torch.Tensor]] = None,
+
+    ) -> Tuple[Callable, ...]:
+
+        assert exists(texts) ^ exists(text_embeds)
+
+        batch, device = len(texts), self.device
+
+        if not exists(text_embeds):
+            text_embeds = self.embed_texts(texts)
 
         text_embeds = torch.cat(text_embeds, dim = -1)
 
