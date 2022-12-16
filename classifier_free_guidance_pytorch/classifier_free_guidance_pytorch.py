@@ -10,7 +10,7 @@ from typing import Callable, Tuple, Optional, List
 from beartype import beartype
 from beartype.door import is_bearable
 
-from inspect import getfullargspec
+from inspect import signature
 
 from classifier_free_guidance_pytorch.t5 import T5Adapter
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
@@ -28,8 +28,11 @@ CONDITION_FUNCTION_KEY_NAME = 'cond_fns'
 def exists(val):
     return val is not None
 
-def default(val, d):
-    return val if exists(val) else d
+def default(*values):
+    for value in values:
+        if exists(value):
+            return value
+    return None
 
 def cast_tuple(val, length = 1):
     return val if isinstance(val, tuple) else ((val,) * length)
@@ -60,12 +63,12 @@ def classifier_free_guidance(
     cond_fns_keyname = CONDITION_FUNCTION_KEY_NAME,
     text_conditioner_name = TEXT_CONDITIONER_NAME
 ):
-    fn_args = getfullargspec(fn).args
+    fn_params = signature(fn).parameters
 
-    can_classifier_free_guide = cond_drop_prob_keyname in fn_args
+    can_classifier_free_guide = cond_drop_prob_keyname in fn_params
 
-    auto_handle_text_condition = texts_key_name not in fn_args
-    assert not (auto_handle_text_condition and cond_fns_keyname not in fn_args), f'{cond_fns_keyname} must be in the wrapped function for autohandling texts -> conditioning functions - ex. forward(..., {cond_fns_keyname})'
+    auto_handle_text_condition = texts_key_name not in fn_params
+    assert not (auto_handle_text_condition and cond_fns_keyname not in fn_params), f'{cond_fns_keyname} must be in the wrapped function for autohandling texts -> conditioning functions - ex. forward(..., {cond_fns_keyname})'
 
     @wraps(fn)
     def inner(
@@ -87,7 +90,14 @@ def classifier_free_guidance(
                     text_conditioner = getattr(self, text_conditioner_name, None)
                     assert exists(text_conditioner) and is_bearable(text_conditioner, TextConditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
-                    cond_drop_prob = kwargs.get(cond_drop_prob_keyname) if can_classifier_free_guide else getattr(self, cond_drop_prob_keyname, 0.)
+                    cond_drop_prob = None
+                    if can_classifier_free_guide:
+                        cond_drop_prob = default(
+                            kwargs.get(cond_drop_prob_keyname, None),       # first try to get cond_drop_prob from kwargs
+                            getattr(self, cond_drop_prob_keyname, None),    # next try to find it if it is set on the instance - ex. __init__(self, cond_drop_prob = 0.2) -> self.cond_drop_prob = cond_drop_prob
+                            fn_params[cond_drop_prob_keyname].default       # finally, get the value set as default on the forward argument
+                        )
+                        # if all fails, it will fall back to the value set on the TextConditioner init
 
                     cond_fns = text_conditioner(texts, cond_drop_prob = cond_drop_prob)
 
