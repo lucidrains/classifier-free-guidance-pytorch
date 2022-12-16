@@ -152,6 +152,7 @@ guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands f
 
 - [ ] complete cross attention conditioning
 - [ ] complete auto perceiver resampler
+- [ ] stress test for spacetime unet in <a href="https://github.com/lucidrains/make-a-video-pytorch">make-a-video</a>
 
 ## Citations
 
