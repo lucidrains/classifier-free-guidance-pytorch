@@ -87,7 +87,7 @@ def classifier_free_guidance(
                     text_conditioner = getattr(self, text_conditioner_name, None)
                     assert exists(text_conditioner) and is_bearable(text_conditioner, TextConditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
-                    cond_drop_prob = kwargs.get(cond_drop_prob_keyname) if can_classifier_free_guide else 0.
+                    cond_drop_prob = kwargs.get(cond_drop_prob_keyname) if can_classifier_free_guide else getattr(self, cond_drop_prob_keyname, 0.)
 
                     cond_fns = text_conditioner(texts, cond_drop_prob = cond_drop_prob)
 
@@ -104,16 +104,13 @@ def classifier_free_guidance(
 
         assert cond_scale >= 1, 'invalid conditioning scale, must be greater or equal to 1'
         assert not (cond_scale > 1 and not can_classifier_free_guide), f'cannot do classifier free guidance if {cond_drop_prob_keyname} not set on forward - ex. forward(..., {cond_drop_prob_keyname}: 0.25) - default 25% condition dropout during training'
-
-        if not can_classifier_free_guide:
-            return fn_maybe_with_text(self, *args, **kwargs)
-
+        
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
         kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
 
         logits = fn_maybe_with_text(self, *args, **kwargs_without_cond_dropout)
 
-        if cond_scale <= 1:
+        if not can_classifier_free_guide or cond_scale == 1:
             return logits
 
         null_logits = fn_maybe_with_text(self, *args, **kwargs_with_cond_dropout)
