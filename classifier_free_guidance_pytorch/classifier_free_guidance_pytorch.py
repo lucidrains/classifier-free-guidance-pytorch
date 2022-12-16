@@ -8,6 +8,7 @@ from einops import rearrange, repeat, pack, unpack
 
 from typing import Callable, Tuple, Optional, List
 from beartype import beartype
+from beartype.door import is_bearable
 
 from inspect import getfullargspec
 
@@ -17,6 +18,10 @@ from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
 # constants
 
 COND_DROP_KEY_NAME = 'cond_drop_prob'
+
+TEXTS_KEY_NAME = 'texts'
+TEXT_CONDITIONER_NAME = 'text_conditioner'
+CONDITION_FUNCTION_KEY_NAME = 'cond_fns'
 
 # helper functions
 
@@ -45,16 +50,21 @@ def prob_mask_like(shape, prob, device):
     else:
         return torch.zeros(shape, device = device).float().uniform_(0, 1) < prob
 
-# classifier free guidance main logic
+# classifier free guidance with automatic text conditioning
 
 @beartype
 def classifier_free_guidance(
     fn: Callable,
-    cond_drop_prob_keyname: str = COND_DROP_KEY_NAME
+    cond_drop_prob_keyname = COND_DROP_KEY_NAME,
+    texts_key_name = TEXTS_KEY_NAME,
+    cond_fns_keyname = CONDITION_FUNCTION_KEY_NAME,
+    text_conditioner_name = TEXT_CONDITIONER_NAME
 ):
-
     fn_args = getfullargspec(fn).args
-    assert cond_drop_prob_keyname in fn_args, f'{cond_drop_prob_keyname} must be a keyword argument on the method, controlling the condition drop probability'
+    assert cond_drop_prob_keyname in fn_args, f'{cond_drop_prob_keyname} must be a keyword argument on the method, controlling the condition drop probability - ex. forward(..., {cond_drop_prob_keyname} = 0.25)'
+
+    auto_handle_text_condition = texts_key_name not in fn_args
+    assert not (auto_handle_text_condition and cond_fns_keyname not in fn_args), f'{cond_fns_keyname} must be in the wrapped function for autohandling texts -> conditioning functions - ex. forward(..., {cond_fns_keyname})'
 
     @wraps(fn)
     def inner(
@@ -63,18 +73,43 @@ def classifier_free_guidance(
         cond_scale: float = 1.,
         **kwargs
     ):
-        if self.training:
+        @wraps(fn)
+        def fn_maybe_with_text(self, *args, **kwargs):
+            if auto_handle_text_condition:
+                texts = kwargs.pop('texts', None)
+                cond_fns = None
+
+                # auto convert texts -> conditioning functions
+
+                if exists(texts):
+                    assert is_bearable(texts, List[str]), f'keyword `{texts_key_name}` must be a list of strings'
+                    text_conditioner = getattr(self, text_conditioner_name, None)
+                    assert exists(text_conditioner) and is_bearable(text_conditioner, TextConditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
+
+                    cond_drop_prob = kwargs.get(cond_drop_prob_keyname)
+
+                    cond_fns = text_conditioner(texts, cond_drop_prob =cond_drop_prob)
+
+                kwargs.update(cond_fns = cond_fns)
+
             return fn(self, *args, **kwargs)
+
+        # main classifier free guidance logic
+
+        if self.training:
+            assert cond_scale == 1, 'you cannot do condition scaling when in training mode'
+
+            return fn_maybe_with_text(self, *args, **kwargs)
 
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
         kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
 
-        logits = fn(self, *args, **kwargs_without_cond_dropout)
+        logits = fn_maybe_with_text(self, *args, **kwargs_without_cond_dropout)
 
         if cond_scale <= 1:
             return logits
 
-        null_logits = fn(self, *args, **kwargs_with_cond_dropout)
+        null_logits = fn_maybe_with_text(self, *args, **kwargs_with_cond_dropout)
         return null_logits + (logits - null_logits) * cond_scale
 
     return inner
@@ -309,6 +344,7 @@ class FiLM(nn.Module):
     def forward(self, conditions, hiddens):
         scale, shift = self.net(conditions).chunk(2, dim = -1)
         assert scale.shape[-1] == hiddens.shape[-1], f'unexpected hidden dimesion {hiddens.shape[-1]} used for conditioning'
+        scale, shift = map(lambda t: rearrange(t, 'b d -> b 1 d'), (scale, shift))
         return hiddens * (scale + 1) + shift
 
 # text conditioning
@@ -382,6 +418,7 @@ class TextConditioner(nn.Module):
         texts: Optional[List[str]] = None,
         text_embeds: Optional[List[torch.Tensor]] = None,
         cond_drop_prob = None,
+        repeat_batch = 1,  # for robotic transformer edge case
     ) -> Tuple[Callable, ...]:
 
         assert exists(texts) ^ exists(text_embeds)
@@ -398,16 +435,19 @@ class TextConditioner(nn.Module):
 
         text_embeds = torch.cat(text_embeds, dim = -1)
 
+        text_embeds = repeat(text_embeds, 'b ... -> (b r) ...', r = repeat_batch)
+
         if cond_drop_prob > 0.:
-            prob_keep_mask = prob_mask_like((batch, 1, 1), 1. - cond_drop_prob, device = device)
-            null_text_embeds = rearrange(self.null_text_embed, 'd -> 1 1 d')
+            prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = device)
+            prob_keep_mask = repeat(prob_keep_mask, 'b ... -> (b r) ...', r = repeat_batch)
+
+            null_text_embeds = rearrange(self.null_text_embed, 'd -> 1 d')
 
             text_embeds = torch.where(
                 prob_keep_mask,
                 text_embeds,
                 null_text_embeds
             )
-
 
         wrapper_fn = rearrange_channel_first if self.hiddens_channel_first else rearrange_channel_last
 

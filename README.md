@@ -48,6 +48,103 @@ first_conditioned = first_condition_fn(first_hidden)
 second_conditioned = second_condition_fn(second_hidden)
 ```
 
+## Magic Decorator (wip)
+
+This is a work in progress to make it as easy as possible to text condition your network.
+
+First, let's say you have a simple two layer network
+
+```python
+import torch
+from torch import nn
+
+class MLP(nn.Module):
+    def __init__(
+        self,
+        dim
+    ):
+        super().__init__()
+        self.proj_in = nn.Sequential(nn.Linear(dim, dim * 2), nn.ReLU())
+        self.proj_mid = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU())
+        self.proj_out = nn.Linear(dim, 1)
+
+    def forward(
+        self,
+        data
+    ):
+        hiddens1 = self.proj_in(data)
+        hiddens2 = self.proj_mid(hiddens1)
+        return self.proj_out(hiddens2)
+
+# instantiate model and pass in some data, get (in this case) a binary prediction
+
+model = MLP(dim = 256)
+
+data = torch.randn(2, 256)
+
+pred = model(data)
+```
+
+You would like to condition the hidden layers (`hiddens1` and `hiddens2`) with text. Each batch element here would get its own free text conditioning
+
+This has been whittled down to ~4 step using this repository. Always open to suggestions
+
+```python
+import torch
+from torch import nn
+
+from classifier_free_guidance_pytorch import TextConditioner, classifier_free_guidance
+
+class MLP(nn.Module):
+    def __init__(
+        self,
+        dim
+    ):
+        super().__init__()
+        self.proj_in = nn.Sequential(nn.Linear(dim, dim * 2), nn.ReLU())
+        self.proj_mid = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU())
+        self.proj_out = nn.Linear(dim, 1)
+
+        # (1) you must instantiate a text conditioner
+        # and pass in the hidden dimensions you would like to condition on. in this case there are two hidden dimensions (dim * 2 and dim, after the first and second projections)
+        self.text_conditioner = TextConditioner(hidden_dims = (dim * 2, dim))
+
+    @classifier_free_guidance   # de
+    def forward(
+        self,
+        inp,
+        cond_fns,               # List[Callable] - (2) your forward function now receives a list of conditioning functions, which you invoke on your hidden tensors
+        cond_drop_prob = 0.2    # (3) this must be [optionally] set for classifier free guidance (Ho et al.), will randomly drop out the text conditioning automatically at training.
+    ):
+        cond_fn1, cond_fn2 = cond_fns
+
+        hiddens1 = self.proj_in(inp)
+        hiddens1 = cond_fn1(hiddens1) # (3) condition the first hidden layer with FiLM
+
+        hiddens2 = self.proj_mid(hiddens1)
+        hiddens2 = cond_fn2(hiddens2) # condition the second hidden layer with FiLM
+
+        return self.proj_out(hiddens2)
+
+# instantiate your model
+
+model = MLP(dim = 256)
+
+# now you have your input data as well as corresponding free text as List[str]
+
+data = torch.randn(2, 256)
+texts = ['a description', 'another description']
+
+# train your model, passing in your list of strings as 'texts' (4)
+
+pred  = model(data, texts = texts)
+
+# after much training, you can now do classifier free guidance by passing in a condition scale of > 1. !
+
+model.eval()
+guided_pred = model(data, texts = texts, cond_scale = 3.)  # 3 is a good numbed
+```
+
 ## Todo
 
 - [x] complete film conditioning, without classifier free guidance (used <a href="https://github.com/lucidrains/robotic-transformer-pytorch/blob/main/robotic_transformer_pytorch/robotic_transformer_pytorch.py">here</a>)
