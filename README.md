@@ -107,7 +107,8 @@ class MLP(nn.Module):
 
         # (1) you must instantiate a text conditioner
         # and pass in the hidden dimensions you would like to condition on. in this case there are two hidden dimensions (dim * 2 and dim, after the first and second projections)
-        self.text_conditioner = TextConditioner(hidden_dims = (dim * 2, dim))
+        # in this example, conditioning on both T5 and OpenCLIP
+        self.text_conditioner = TextConditioner(model_types = ('t5', 'clip'), hidden_dims = (dim * 2, dim))
 
     @classifier_free_guidance
     def forward(

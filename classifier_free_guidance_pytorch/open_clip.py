@@ -8,15 +8,33 @@ import torch.nn.functional as F
 import open_clip
 from classifier_free_guidance_pytorch.tokenizer import tokenizer
 
+# constants
+
+DEFAULT_CLIP_NAME = 'ViT-B/32'
+DEFAULT_PRETRAINED_CLIP = 'laion400m_e32'
+
+# helper functions
+
+def exists(val):
+    return val is not None
+
+def default(val, d):
+    return val if exists(val) else d
+
 def l2norm(t):
     return F.normalize(t, dim = -1)
+
+# adapter
 
 class OpenClipAdapter():
     def __init__(
         self,
-        name = 'ViT-B/32',
-        pretrained = 'laion400m_e32'
+        name = DEFAULT_CLIP_NAME,
+        pretrained = DEFAULT_PRETRAINED_CLIP
     ):
+        name = default(name, DEFAULT_CLIP_NAME)
+        pretrained = default(pretrained, DEFAULT_PRETRAINED_CLIP)
+
         clip, _, preprocess = open_clip.create_model_and_transforms(name, pretrained = pretrained)
 
         self.clip = clip
