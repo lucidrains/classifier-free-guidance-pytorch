@@ -109,14 +109,14 @@ class MLP(nn.Module):
         # and pass in the hidden dimensions you would like to condition on. in this case there are two hidden dimensions (dim * 2 and dim, after the first and second projections)
         self.text_conditioner = TextConditioner(hidden_dims = (dim * 2, dim))
 
-    @classifier_free_guidance   # de
+    @classifier_free_guidance
     def forward(
         self,
         inp,
         cond_fns,               # List[Callable] - (2) your forward function now receives a list of conditioning functions, which you invoke on your hidden tensors
         cond_drop_prob = 0.2    # (3) this must be [optionally] set for classifier free guidance (Ho et al.), will randomly drop out the text conditioning automatically at training.
     ):
-        cond_fn1, cond_fn2 = cond_fns
+        cond_fn1, cond_fn2 = cond_fns # conditioning functions are given back in the order of the `hidden_dims` set on the text conditioner
 
         hiddens1 = self.proj_in(inp)
         hiddens1 = cond_fn1(hiddens1) # (3) condition the first hidden layer with FiLM
@@ -135,14 +135,14 @@ model = MLP(dim = 256)
 data = torch.randn(2, 256)
 texts = ['a description', 'another description']
 
-# train your model, passing in your list of strings as 'texts' (4)
+# (4) train your model, passing in your list of strings as 'texts'
 
 pred  = model(data, texts = texts)
 
 # after much training, you can now do classifier free guidance by passing in a condition scale of > 1. !
 
 model.eval()
-guided_pred = model(data, texts = texts, cond_scale = 3.)  # 3 is a good numbed
+guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands for conditioning scale from classifier free guidance paper
 ```
 
 ## Todo
