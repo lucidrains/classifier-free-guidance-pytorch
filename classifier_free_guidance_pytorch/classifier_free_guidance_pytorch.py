@@ -65,8 +65,6 @@ def classifier_free_guidance(
 ):
     fn_params = signature(fn).parameters
 
-    can_classifier_free_guide = cond_drop_prob_keyname in fn_params
-
     auto_handle_text_condition = texts_key_name not in fn_params
     assert not (auto_handle_text_condition and cond_fns_keyname not in fn_params), f'{cond_fns_keyname} must be in the wrapped function for autohandling texts -> conditioning functions - ex. forward(..., {cond_fns_keyname})'
 
@@ -90,14 +88,7 @@ def classifier_free_guidance(
                     text_conditioner = getattr(self, text_conditioner_name, None)
                     assert exists(text_conditioner) and is_bearable(text_conditioner, TextConditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
-                    cond_drop_prob = None
-                    if can_classifier_free_guide:
-                        cond_drop_prob = default(
-                            kwargs.get(cond_drop_prob_keyname, None),       # first try to get cond_drop_prob from kwargs
-                            getattr(self, cond_drop_prob_keyname, None),    # next try to find it if it is set on the instance - ex. __init__(self, cond_drop_prob = 0.2) -> self.cond_drop_prob = cond_drop_prob
-                            fn_params[cond_drop_prob_keyname].default       # finally, get the value set as default on the forward argument
-                        )
-                        # if all fails, it will fall back to the value set on the TextConditioner init
+                    cond_drop_prob = kwargs.pop(cond_drop_prob_keyname, None)
 
                     cond_fns = text_conditioner(texts, cond_drop_prob = cond_drop_prob)
 
@@ -113,14 +104,13 @@ def classifier_free_guidance(
             return fn_maybe_with_text(self, *args, **kwargs)
 
         assert cond_scale >= 1, 'invalid conditioning scale, must be greater or equal to 1'
-        assert not (cond_scale > 1 and not can_classifier_free_guide), f'cannot do classifier free guidance if {cond_drop_prob_keyname} not set on forward - ex. forward(..., {cond_drop_prob_keyname}: 0.25) - default 25% condition dropout during training'
         
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
         kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
 
         logits = fn_maybe_with_text(self, *args, **kwargs_without_cond_dropout)
 
-        if not can_classifier_free_guide or cond_scale == 1:
+        if cond_scale == 1:
             return logits
 
         null_logits = fn_maybe_with_text(self, *args, **kwargs_with_cond_dropout)

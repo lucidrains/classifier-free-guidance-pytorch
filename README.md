@@ -106,24 +106,26 @@ class MLP(nn.Module):
         self.proj_out = nn.Linear(dim, 1)
 
         # (1) you must instantiate a text conditioner
-        # and pass in the hidden dimensions you would like to condition on. in this case there are two hidden dimensions (dim * 2 and dim, after the first and second projections)
-        # in this example, conditioning on both T5 and OpenCLIP
-        self.text_conditioner = TextConditioner(model_types = ('t5', 'clip'), hidden_dims = (dim * 2, dim))
+
+        self.text_conditioner = TextConditioner(
+            model_types = ('t5', 'clip'),  # in this example, conditioning on both T5 and OpenCLIP
+            hidden_dims = (dim * 2, dim),  # and pass in the hidden dimensions you would like to condition on. in this case there are two hidden dimensions (dim * 2 and dim, after the first and second projections)
+            cond_drop_prob = 0.25          # conditional dropout probability for classifier free guidance. can be set to 0. if you do not need it and just want the text conditioning
+        )
 
     @classifier_free_guidance
     def forward(
         self,
         inp,
-        cond_fns,               # List[Callable] - (2) your forward function now receives a list of conditioning functions, which you invoke on your hidden tensors
-        cond_drop_prob = 0.2    # (3) this must be [optionally] set for classifier free guidance (Ho et al.), will randomly drop out the text conditioning automatically at training.
+        cond_fns # List[Callable] - (2) your forward function now receives a list of conditioning functions, which you invoke on your hidden tensors
     ):
-        cond_fn1, cond_fn2 = cond_fns # conditioning functions are given back in the order of the `hidden_dims` set on the text conditioner
+        cond_hidden1, cond_hidden2 = cond_fns # conditioning functions are given back in the order of the `hidden_dims` set on the text conditioner
 
         hiddens1 = self.proj_in(inp)
-        hiddens1 = cond_fn1(hiddens1) # (3) condition the first hidden layer with FiLM
+        hiddens1 = cond_hidden1(hiddens1) # (3) condition the first hidden layer with FiLM
 
         hiddens2 = self.proj_mid(hiddens1)
-        hiddens2 = cond_fn2(hiddens2) # condition the second hidden layer with FiLM
+        hiddens2 = cond_hidden2(hiddens2) # condition the second hidden layer with FiLM
 
         return self.proj_out(hiddens2)
 
