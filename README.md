@@ -113,7 +113,7 @@ class MLP(nn.Module):
             cond_drop_prob = 0.25          # conditional dropout probability for classifier free guidance. can be set to 0. if you do not need it and just want the text conditioning
         )
 
-    @classifier_free_guidance
+    @classifier_free_guidance # (2) add the magic decorator to your model forward function
     def forward(
         self,
         inp,
