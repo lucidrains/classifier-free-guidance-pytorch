@@ -400,7 +400,10 @@ class TextConditioner(nn.Module):
         self.conditioners = nn.ModuleList([])
 
         self.hidden_dims = hidden_dims
-        self.hiddens_channel_first = hiddens_channel_first # whether hiddens to be conditioned is channel first or last
+        self.num_condition_fns = len(hidden_dims)
+        self.hiddens_channel_first = cast_tuple(hiddens_channel_first, self.num_condition_fns) # whether hiddens to be conditioned is channel first or last
+
+        assert len(self.hiddens_channel_first) == self.num_condition_fns
 
         self.cond_drop_prob = cond_drop_prob
 
@@ -447,13 +450,11 @@ class TextConditioner(nn.Module):
         elif exists(text_embeds):
             batch = text_embeds.shape[0]
 
-        device = self.device
-
         if not exists(text_embeds):
             text_embeds = self.embed_texts(texts)
 
         if cond_drop_prob > 0.:
-            prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = device)
+            prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = self.device)
             null_text_embeds = rearrange(self.null_text_embed, 'd -> 1 d')
 
             text_embeds = torch.where(
@@ -462,8 +463,18 @@ class TextConditioner(nn.Module):
                 null_text_embeds
             )
 
-        text_embeds = repeat(text_embeds, 'b ... -> (b r) ...', r = repeat_batch)
+        # prepare the conditioning functions
 
-        wrapper_fn = rearrange_channel_first if self.hiddens_channel_first else rearrange_channel_last
+        repeat_batch = cast_tuple(repeat_batch, self.num_condition_fns)
 
-        return tuple(wrapper_fn(partial(cond, text_embeds)) for cond in self.conditioners)
+        cond_fns = []
+
+        for cond, cond_hiddens_channel_first, cond_repeat_batch in zip(self.conditioners, self.hiddens_channel_first, repeat_batch):
+            cond_text_embeds = repeat(text_embeds, 'b ... -> (b r) ...', r = cond_repeat_batch)
+            cond_fn = partial(cond, cond_text_embeds)
+
+            wrapper_fn = rearrange_channel_first if cond_hiddens_channel_first else rearrange_channel_last
+
+            cond_fns.append(wrapper_fn(cond_fn))
+
+        return tuple(cond_fns)
