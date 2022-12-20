@@ -20,6 +20,7 @@ from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
 COND_DROP_KEY_NAME = 'cond_drop_prob'
 
 TEXTS_KEY_NAME = 'texts'
+TEXT_EMBEDS_KEY_NAME = 'text_embeds'
 TEXT_CONDITIONER_NAME = 'text_conditioner'
 CONDITION_FUNCTION_KEY_NAME = 'cond_fns'
 
@@ -60,12 +61,13 @@ def classifier_free_guidance(
     fn: Callable,
     cond_drop_prob_keyname = COND_DROP_KEY_NAME,
     texts_key_name = TEXTS_KEY_NAME,
+    text_embeds_key_name = TEXT_EMBEDS_KEY_NAME,
     cond_fns_keyname = CONDITION_FUNCTION_KEY_NAME,
     text_conditioner_name = TEXT_CONDITIONER_NAME
 ):
     fn_params = signature(fn).parameters
 
-    auto_handle_text_condition = texts_key_name not in fn_params
+    auto_handle_text_condition = texts_key_name not in fn_params and text_embeds_key_name not in fn_params
     assert not (auto_handle_text_condition and cond_fns_keyname not in fn_params), f'{cond_fns_keyname} must be in the wrapped function for autohandling texts -> conditioning functions - ex. forward(..., {cond_fns_keyname})'
 
     @wraps(fn)
@@ -79,18 +81,26 @@ def classifier_free_guidance(
         def fn_maybe_with_text(self, *args, **kwargs):
             if auto_handle_text_condition:
                 texts = kwargs.pop('texts', None)
+                text_embeds = kwargs.pop('text_embeds', None)
+
+                assert not (exists(texts) and exists(text_embeds))
+
                 cond_fns = None
 
                 # auto convert texts -> conditioning functions
 
-                if exists(texts):
-                    assert is_bearable(texts, List[str]), f'keyword `{texts_key_name}` must be a list of strings'
+                if exists(texts) ^ exists(text_embeds):
+
+                    assert is_bearable(texts, Optional[List[str]]), f'keyword `{texts_key_name}` must be a list of strings'
+
                     text_conditioner = getattr(self, text_conditioner_name, None)
                     assert exists(text_conditioner) and is_bearable(text_conditioner, TextConditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
                     cond_drop_prob = kwargs.pop(cond_drop_prob_keyname, None)
 
-                    cond_fns = text_conditioner(texts, cond_drop_prob = cond_drop_prob)
+                    text_condition_input = dict(texts = texts) if exists(texts) else dict(text_embeds = text_embeds)
+
+                    cond_fns = text_conditioner(**text_condition_input, cond_drop_prob = cond_drop_prob)
 
                 kwargs.update(cond_fns = cond_fns)
 
@@ -415,12 +425,12 @@ class TextConditioner(nn.Module):
             text_embed = text_model.embed_text(texts)
             text_embeds.append(text_embed.to(device))
 
-        return text_embeds
+        return torch.cat(text_embeds, dim = -1)
 
     def forward(
         self,
         texts: Optional[List[str]] = None,
-        text_embeds: Optional[List[torch.Tensor]] = None,
+        text_embeds: Optional[torch.Tensor] = None,
         cond_drop_prob = None,
         repeat_batch = 1,  # for robotic transformer edge case
     ) -> Tuple[Callable, ...]:
@@ -432,12 +442,15 @@ class TextConditioner(nn.Module):
         else:
             assert exists(cond_drop_prob), 'when not training, cond_drop_prob must be explicitly set'
 
-        batch, device = len(texts), self.device
+        if exists(texts):
+            batch = len(texts)
+        elif exists(text_embeds):
+            batch = text_embeds.shape[0]
+
+        device = self.device
 
         if not exists(text_embeds):
             text_embeds = self.embed_texts(texts)
-
-        text_embeds = torch.cat(text_embeds, dim = -1)
 
         if cond_drop_prob > 0.:
             prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = device)
