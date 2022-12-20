@@ -439,12 +439,8 @@ class TextConditioner(nn.Module):
 
         text_embeds = torch.cat(text_embeds, dim = -1)
 
-        text_embeds = repeat(text_embeds, 'b ... -> (b r) ...', r = repeat_batch)
-
         if cond_drop_prob > 0.:
             prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = device)
-            prob_keep_mask = repeat(prob_keep_mask, 'b ... -> (b r) ...', r = repeat_batch)
-
             null_text_embeds = rearrange(self.null_text_embed, 'd -> 1 d')
 
             text_embeds = torch.where(
@@ -452,6 +448,8 @@ class TextConditioner(nn.Module):
                 text_embeds,
                 null_text_embeds
             )
+
+        text_embeds = repeat(text_embeds, 'b ... -> (b r) ...', r = repeat_batch)
 
         wrapper_fn = rearrange_channel_first if self.hiddens_channel_first else rearrange_channel_last
 
