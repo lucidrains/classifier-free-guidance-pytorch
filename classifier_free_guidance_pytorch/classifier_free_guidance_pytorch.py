@@ -377,7 +377,8 @@ class TextConditioner(nn.Module):
         model_types = 't5',
         model_names = None,
         cond_drop_prob = 0.,
-        hiddens_channel_first = True
+        hiddens_channel_first = True,
+        text_embed_stem_dim_mult = 2
     ):
         super().__init__()
         model_types = cast_tuple(model_types)
@@ -408,9 +409,15 @@ class TextConditioner(nn.Module):
         self.cond_drop_prob = cond_drop_prob
 
         total_latent_dim = sum(self.latent_dims)
+        mlp_stem_output_dim = total_latent_dim * text_embed_stem_dim_mult
+
+        self.text_embed_stem_mlp = nn.Sequential(
+            nn.Linear(total_latent_dim, mlp_stem_output_dim),
+            nn.SiLU()
+        )
 
         for hidden_dim in hidden_dims:
-            self.conditioners.append(FiLM(total_latent_dim, hidden_dim))
+            self.conditioners.append(FiLM(mlp_stem_output_dim, hidden_dim))
 
         self.null_text_embed = nn.Parameter(torch.randn(total_latent_dim))
 
@@ -462,6 +469,10 @@ class TextConditioner(nn.Module):
                 text_embeds,
                 null_text_embeds
             )
+
+        # text embed mlp stem, as done in unet conditioning in guided diffusion
+
+        text_embeds = self.text_embed_stem_mlp(text_embeds)
 
         # prepare the conditioning functions
 
