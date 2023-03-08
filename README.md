@@ -54,7 +54,7 @@ If you wish to use cross attention based conditioning (each hidden feature in yo
 from classifier_free_guidance_pytorch import AttentionTextConditioner
 
 text_conditioner = AttentionTextConditioner(
-    model_types = ('t5', 'clip'),   # something like in eDiff paper, where they used both T5 and Clip for even better results (Karras et al.)
+    model_types = ('t5', 'clip'),   # something like in eDiff paper, where they used both T5 and Clip for even better results (Balaji et al.)
     hidden_dims = (256, 512),
     cond_drop_prob = 0.2
 )
