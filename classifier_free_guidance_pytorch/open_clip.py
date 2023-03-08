@@ -10,7 +10,7 @@ from classifier_free_guidance_pytorch.tokenizer import tokenizer
 
 # constants
 
-DEFAULT_CLIP_NAME = 'ViT-B/32'
+DEFAULT_CLIP_NAME = 'ViT-B-32'
 DEFAULT_PRETRAINED_CLIP = 'laion400m_e32'
 
 # helper functions
