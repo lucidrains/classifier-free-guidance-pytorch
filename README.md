@@ -158,9 +158,8 @@ guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands f
 
 - [x] complete film conditioning, without classifier free guidance (used <a href="https://github.com/lucidrains/robotic-transformer-pytorch/blob/main/robotic_transformer_pytorch/robotic_transformer_pytorch.py">here</a>)
 - [x] add classifier free guidance for film conditioning
+- [x] complete cross attention conditioning
 
-- [ ] complete cross attention conditioning
-- [ ] complete auto perceiver resampler
 - [ ] stress test for spacetime unet in <a href="https://github.com/lucidrains/make-a-video-pytorch">make-a-video</a>
 
 ## Citations
