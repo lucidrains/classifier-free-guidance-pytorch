@@ -6,8 +6,8 @@ from torch import nn, einsum
 
 from einops import rearrange, repeat, pack, unpack
 
-from typing import Callable, Tuple, Optional, List
 from beartype import beartype
+from beartype.typing import Callable, Tuple, Optional, List, Literal, Union
 from beartype.door import is_bearable
 
 from inspect import signature
@@ -43,6 +43,9 @@ def pack_one(x, pattern):
 
 def unpack_one(x, ps, pattern):
     return unpack(x, ps, pattern)[0]
+
+def TupleOrSingle(t):
+    return Union[Tuple[t], t]
 
 # tensor helpers
 
@@ -94,7 +97,7 @@ def classifier_free_guidance(
                     assert is_bearable(texts, Optional[List[str]]), f'keyword `{texts_key_name}` must be a list of strings'
 
                     text_conditioner = getattr(self, text_conditioner_name, None)
-                    assert exists(text_conditioner) and is_bearable(text_conditioner, TextConditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
+                    assert exists(text_conditioner) and is_bearable(text_conditioner, Conditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
                     cond_drop_prob = kwargs.pop(cond_drop_prob_keyname, None)
 
@@ -128,122 +131,6 @@ def classifier_free_guidance(
 
     return inner
 
-# attention pooling
-
-class PerceiverAttention(nn.Module):
-    def __init__(
-        self,
-        *,
-        dim,
-        dim_head = 64,
-        heads = 8
-    ):
-        super().__init__()
-        self.scale = dim_head ** -0.5
-
-        self.heads = heads
-        inner_dim = dim_head * heads
-
-        self.norm = nn.LayerNorm(dim)
-        self.norm_latents = nn.LayerNorm(dim)
-
-        self.to_q = nn.Linear(dim, inner_dim, bias = False)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
-
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim, bias = False),
-            nn.LayerNorm(dim)
-        )
-
-    def forward(self, x, latents, mask = None):
-        x = self.norm(x)
-        latents = self.norm_latents(latents)
-
-        b, h = x.shape[0], self.heads
-
-        q = self.to_q(latents)
-
-        # the paper differs from Perceiver in which they also concat the key / values derived from the latents to be attended to
-        kv_input = torch.cat((x, latents), dim = -2)
-        k, v = self.to_kv(kv_input).chunk(2, dim = -1)
-
-        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> b h n d', h = h)
-
-        q = q * self.scale
-
-        # similarities and masking
-
-        sim = einsum('... i d, ... j d  -> ... i j', q, k) * self.scale
-
-        if exists(mask):
-            max_neg_value = -torch.finfo(sim.dtype).max
-            mask = F.pad(mask, (0, latents.shape[-2]), value = True)
-            mask = rearrange(mask, 'b j -> b 1 1 j')
-            sim = sim.masked_fill(~mask, max_neg_value)
-
-        # attention
-
-        attn = sim.softmax(dim = -1, dtype = torch.float32)
-        attn = attn.to(sim.dtype)
-
-        out = einsum('... i j, ... j d -> ... i d', attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)', h = h)
-        return self.to_out(out)
-
-class PerceiverResampler(nn.Module):
-    def __init__(
-        self,
-        *,
-        dim,
-        depth,
-        dim_head = 64,
-        heads = 8,
-        num_latents = 64,
-        num_latents_mean_pooled = 4, # number of latents derived from mean pooled representation of the sequence
-        max_seq_len = 512,
-        ff_mult = 4,
-        cosine_sim_attn = False
-    ):
-        super().__init__()
-        self.pos_emb = nn.Embedding(max_seq_len, dim)
-
-        self.latents = nn.Parameter(torch.randn(num_latents, dim))
-
-        self.to_latents_from_mean_pooled_seq = None
-
-        if num_latents_mean_pooled > 0:
-            self.to_latents_from_mean_pooled_seq = nn.Sequential(
-                LayerNorm(dim),
-                nn.Linear(dim, dim * num_latents_mean_pooled),
-                Rearrange('b (n d) -> b n d', n = num_latents_mean_pooled)
-            )
-
-        self.layers = nn.ModuleList([])
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                PerceiverAttention(dim = dim, dim_head = dim_head, heads = heads, cosine_sim_attn = cosine_sim_attn),
-                FeedForward(dim = dim, mult = ff_mult)
-            ]))
-
-    def forward(self, x, mask = None):
-        n, device = x.shape[1], x.device
-        pos_emb = self.pos_emb(torch.arange(n, device = device))
-
-        x_with_pos = x + pos_emb
-
-        latents = repeat(self.latents, 'n d -> b n d', b = x.shape[0])
-
-        if exists(self.to_latents_from_mean_pooled_seq):
-            meanpooled_seq = masked_mean(x, dim = 1, mask = torch.ones(x.shape[:2], device = x.device, dtype = torch.bool))
-            meanpooled_latents = self.to_latents_from_mean_pooled_seq(meanpooled_seq)
-            latents = torch.cat((meanpooled_latents, latents), dim = -2)
-
-        for attn, ff in self.layers:
-            latents = attn(x_with_pos, latents, mask = mask) + latents
-            latents = ff(latents) + latents
-
-        return latents
-
 # attention
 
 class Attention(nn.Module):
@@ -259,13 +146,12 @@ class Attention(nn.Module):
         super().__init__()
         self.heads = heads
         self.scale = dim_head ** -0.5
-        self.causal = causal
         inner_dim = dim_head * heads
 
         dim_context = default(dim_context, dim)
 
-        self.norm = LayerNorm(dim)
-        self.context_norm = LayerNorm(dim_context) if norm_context else nn.Identity()
+        self.norm = nn.LayerNorm(dim)
+        self.context_norm = nn.LayerNorm(dim_context) if norm_context else nn.Identity()
 
         self.num_null_kv = num_null_kv
         self.null_kv = nn.Parameter(torch.randn(2, num_null_kv, dim_head))
@@ -361,20 +247,50 @@ class FiLM(nn.Module):
         scale, shift = map(lambda t: rearrange(t, 'b d -> b 1 d'), (scale, shift))
         return hiddens * (scale + 1) + shift
 
-# text conditioning
+class CrossAttention(nn.Module):
+    def __init__(
+        self,
+        dim,
+        hidden_dim,
+        heads = 8,
+        dim_head = 64
+    ):
+        super().__init__()
+        self.attn = Attention(
+            dim = hidden_dim,
+            dim_context = dim,
+            norm_context = True,
+            num_null_kv = 1,
+            dim_head = dim_head,
+            heads = heads
+        )
+
+    def forward(
+        self,
+        condition,
+        hiddens,
+        mask = None
+    ):
+        return self.attn(hiddens, condition, mask = mask)
+
+# film text conditioning
 
 CONDITION_CONFIG = dict(
     t5 = T5Adapter,
     clip = OpenClipAdapter
 )
 
+
+class Conditioner(nn.Module):
+    pass
+
 @beartype
-class TextConditioner(nn.Module):
+class TextConditioner(Conditioner):
     def __init__(
         self,
         *,
         hidden_dims: Tuple[int, ...],
-        model_types = 't5',
+        model_types: TupleOrSingle(Literal['t5', 'clip']) = 't5',
         model_names = None,
         cond_drop_prob = 0.,
         hiddens_channel_first = True,
@@ -385,14 +301,12 @@ class TextConditioner(nn.Module):
         model_names = cast_tuple(model_names, length = len(model_types))
 
         assert len(model_types) == len(model_names)
-        assert all([model_type in CONDITION_CONFIG.keys() for model_type in model_types])
 
         text_models = []
 
         for model_type, model_name in zip(model_types, model_names):
             klass = CONDITION_CONFIG.get(model_type)
             model = klass(model_name)
-
             text_models.append(model)
 
         self.text_models = text_models
@@ -483,6 +397,130 @@ class TextConditioner(nn.Module):
         for cond, cond_hiddens_channel_first, cond_repeat_batch in zip(self.conditioners, self.hiddens_channel_first, repeat_batch):
             cond_text_embeds = repeat(text_embeds, 'b ... -> (b r) ...', r = cond_repeat_batch)
             cond_fn = partial(cond, cond_text_embeds)
+
+            wrapper_fn = rearrange_channel_first if cond_hiddens_channel_first else rearrange_channel_last
+
+            cond_fns.append(wrapper_fn(cond_fn))
+
+        return tuple(cond_fns)
+
+# cross attention text conditioner
+
+@beartype
+class AttentionTextConditioner(Conditioner):
+    def __init__(
+        self,
+        *,
+        hidden_dims: Tuple[int, ...],
+        model_types: TupleOrSingle(Literal['t5', 'clip']) = 't5',
+        model_names = None,
+        cond_drop_prob = 0.,
+        hiddens_channel_first = True,
+        dim_latent = None,
+        attn_dim_head = 64,
+        attn_heads = 8
+    ):
+        super().__init__()
+        model_types = cast_tuple(model_types)
+        model_names = cast_tuple(model_names, length = len(model_types))
+
+        assert len(model_types) == len(model_names)
+
+        text_models = []
+
+        for model_type, model_name in zip(model_types, model_names):
+            klass = CONDITION_CONFIG.get(model_type)
+            model = klass(model_name)
+            text_models.append(model)
+
+        self.text_models = text_models
+
+        self.to_latent_dims = nn.ModuleList([])
+
+        dim_latent = default(dim_latent, max([model.dim_latent for model in text_models]))
+
+        for model in text_models:
+            self.to_latent_dims.append(nn.Linear(model.dim_latent, dim_latent) if model.dim_latent != dim_latent else nn.Identity())
+
+        self.conditioners = nn.ModuleList([])
+
+        self.hidden_dims = hidden_dims
+        self.num_condition_fns = len(hidden_dims)
+        self.hiddens_channel_first = cast_tuple(hiddens_channel_first, self.num_condition_fns) # whether hiddens to be conditioned is channel first or last
+
+        assert len(self.hiddens_channel_first) == self.num_condition_fns
+
+        self.cond_drop_prob = cond_drop_prob
+
+        for hidden_dim in hidden_dims:
+            self.conditioners.append(CrossAttention(dim_latent, hidden_dim))
+
+        self.register_buffer('_device_param', torch.tensor(0.), persistent = False)
+
+    @property
+    def device(self):
+        return next(self.buffers()).device
+
+    def embed_texts(self, texts: List[str]):
+        device = self.device
+
+        text_embeds = []
+        masks = []
+
+        for text_model, to_latent in zip(self.text_models, self.to_latent_dims):
+            text_embed = text_model.embed_text(texts, return_text_encodings = True)
+
+            text_embed = text_embed.to(device)
+
+            mask = (text_embed != 0).any(dim = -1)
+            mask = mask.to(device)
+
+            text_embeds.append(to_latent(text_embed))
+            masks.append(mask)
+
+        return torch.cat(text_embeds, dim = -2), torch.cat(masks, dim = -1)
+
+    def forward(
+        self,
+        texts: Optional[List[str]] = None,
+        text_embeds: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        cond_drop_prob = None,
+        repeat_batch = 1,  # for robotic transformer edge case
+    ) -> Tuple[Callable, ...]:
+
+        assert exists(texts) ^ exists(text_embeds)
+
+        if self.training:
+            cond_drop_prob = default(cond_drop_prob, self.cond_drop_prob)
+        else:
+            assert exists(cond_drop_prob), 'when not training, cond_drop_prob must be explicitly set'
+
+        if exists(texts):
+            batch = len(texts)
+        elif exists(text_embeds):
+            batch = text_embeds[0].shape[0]
+
+        if exists(text_embeds):
+            text_embeds, mask = text_embeds
+
+        if not exists(text_embeds):
+            text_embeds, mask = self.embed_texts(texts)
+
+        if cond_drop_prob > 0.:
+            prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = self.device)
+            mask = mask & prob_keep_mask
+
+        # prepare the conditioning functions
+
+        repeat_batch = cast_tuple(repeat_batch, self.num_condition_fns)
+
+        cond_fns = []
+
+        for cond, cond_hiddens_channel_first, cond_repeat_batch in zip(self.conditioners, self.hiddens_channel_first, repeat_batch):
+            cond_text_embeds = repeat(text_embeds, 'b ... -> (b r) ...', r = cond_repeat_batch)
+            cond_mask = repeat(mask, 'b ... -> (b r) ...', r = cond_repeat_batch) if exists(mask) else None
+
+            cond_fn = partial(cond, cond_text_embeds, mask = cond_mask)
 
             wrapper_fn = rearrange_channel_first if cond_hiddens_channel_first else rearrange_channel_last
 
