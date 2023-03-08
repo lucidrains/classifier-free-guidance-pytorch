@@ -44,9 +44,6 @@ def pack_one(x, pattern):
 def unpack_one(x, ps, pattern):
     return unpack(x, ps, pattern)[0]
 
-def TupleOrSingle(t):
-    return Union[Tuple[t], t]
-
 # tensor helpers
 
 def prob_mask_like(shape, prob, device):
@@ -280,6 +277,7 @@ CONDITION_CONFIG = dict(
     clip = OpenClipAdapter
 )
 
+MODEL_TYPES = CONDITION_CONFIG.keys()
 
 class Conditioner(nn.Module):
     pass
@@ -290,7 +288,7 @@ class TextConditioner(Conditioner):
         self,
         *,
         hidden_dims: Tuple[int, ...],
-        model_types: TupleOrSingle(Literal['t5', 'clip']) = 't5',
+        model_types = 't5',
         model_names = None,
         cond_drop_prob = 0.,
         hiddens_channel_first = True,
@@ -301,6 +299,7 @@ class TextConditioner(Conditioner):
         model_names = cast_tuple(model_names, length = len(model_types))
 
         assert len(model_types) == len(model_names)
+        assert all([model_type in MODEL_TYPES for model_type in model_types])
 
         text_models = []
 
@@ -412,7 +411,7 @@ class AttentionTextConditioner(Conditioner):
         self,
         *,
         hidden_dims: Tuple[int, ...],
-        model_types: TupleOrSingle(Literal['t5', 'clip']) = 't5',
+        model_types = 't5',
         model_names = None,
         cond_drop_prob = 0.,
         hiddens_channel_first = True,
@@ -425,6 +424,7 @@ class AttentionTextConditioner(Conditioner):
         model_names = cast_tuple(model_names, length = len(model_types))
 
         assert len(model_types) == len(model_names)
+        assert all([model_type in MODEL_TYPES for model_type in model_types])
 
         text_models = []
 
