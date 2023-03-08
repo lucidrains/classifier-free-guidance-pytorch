@@ -271,7 +271,7 @@ class CrossAttention(nn.Module):
         hiddens,
         mask = None
     ):
-        return self.attn(hiddens, condition, mask = mask)
+        return self.attn(hiddens, condition, mask = mask) + hiddens
 
 # film text conditioning
 
@@ -440,7 +440,7 @@ class AttentionTextConditioner(Conditioner):
         dim_latent = default(dim_latent, max([model.dim_latent for model in text_models]))
 
         for model in text_models:
-            self.to_latent_dims.append(nn.Linear(model.dim_latent, dim_latent) if model.dim_latent != dim_latent else nn.Identity())
+            self.to_latent_dims.append(nn.Linear(model.dim_latent, dim_latent))
 
         self.conditioners = nn.ModuleList([])
 
@@ -465,7 +465,6 @@ class AttentionTextConditioner(Conditioner):
         device = self.device
 
         text_embeds = []
-        masks = []
 
         for text_model, to_latent in zip(self.text_models, self.to_latent_dims):
             text_embed = text_model.embed_text(texts, return_text_encodings = True)
@@ -473,17 +472,18 @@ class AttentionTextConditioner(Conditioner):
             text_embed = text_embed.to(device)
 
             mask = (text_embed != 0).any(dim = -1)
-            mask = mask.to(device)
 
-            text_embeds.append(to_latent(text_embed))
-            masks.append(mask)
+            text_embed = to_latent(text_embed)
+            text_embed = text_embed.masked_fill(~mask[..., None], 0.)
 
-        return torch.cat(text_embeds, dim = -2), torch.cat(masks, dim = -1)
+            text_embeds.append(text_embed)
+
+        return torch.cat(text_embeds, dim = -2)
 
     def forward(
         self,
         texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        text_embeds: Optional[torch.Tensor] = None,
         cond_drop_prob = None,
         repeat_batch = 1,  # for robotic transformer edge case
     ) -> Tuple[Callable, ...]:
@@ -497,14 +497,14 @@ class AttentionTextConditioner(Conditioner):
 
         if exists(texts):
             batch = len(texts)
-        elif exists(text_embeds):
-            batch = text_embeds[0].shape[0]
 
-        if exists(text_embeds):
-            text_embeds, mask = text_embeds
+        elif exists(text_embeds):
+            batch = text_embeds.shape[0]
 
         if not exists(text_embeds):
-            text_embeds, mask = self.embed_texts(texts)
+            text_embeds = self.embed_texts(texts)
+
+        mask = (text_embeds != 0).any(dim = -1)
 
         if cond_drop_prob > 0.:
             prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = self.device)

@@ -48,6 +48,12 @@ first_conditioned = first_condition_fn(first_hidden)
 second_conditioned = second_condition_fn(second_hidden)
 ```
 
+If you wish to use cross attention based conditioning (each hidden feature in your network can attend to individual subword tokens), just import the `AttentionTextConditioner` instead. Rest is the same
+
+```python
+from classifier_free_guidance_pytorch import AttentionTextConditioner
+```
+
 ## Magic Decorator (wip)
 
 This is a work in progress to make it as easy as possible to text condition your network.
