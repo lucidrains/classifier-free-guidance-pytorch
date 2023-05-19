@@ -88,13 +88,14 @@ def classifier_free_guidance(
 
                 cond_fns = None
 
+                text_conditioner = getattr(self, text_conditioner_name, None)
+
                 # auto convert texts -> conditioning functions
 
                 if exists(texts) ^ exists(text_embeds):
 
                     assert is_bearable(texts, Optional[List[str]]), f'keyword `{texts_key_name}` must be a list of strings'
 
-                    text_conditioner = getattr(self, text_conditioner_name, None)
                     assert exists(text_conditioner) and is_bearable(text_conditioner, Conditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
                     cond_drop_prob = kwargs.pop(cond_drop_prob_keyname, None)
@@ -102,6 +103,9 @@ def classifier_free_guidance(
                     text_condition_input = dict(texts = texts) if exists(texts) else dict(text_embeds = text_embeds)
 
                     cond_fns = text_conditioner(**text_condition_input, cond_drop_prob = cond_drop_prob)
+
+                elif isinstance(text_conditioner, NullConditioner):
+                    cond_fns = text_conditioner()
 
                 kwargs.update(cond_fns = cond_fns)
 
@@ -280,6 +284,36 @@ MODEL_TYPES = CONDITION_CONFIG.keys()
 
 class Conditioner(nn.Module):
     pass
+
+# null conditioner
+
+class Identity(nn.Module):
+    def forward(self, t, *args, **kwargs):
+        return t
+
+@beartype
+class NullConditioner(Conditioner):
+    def __init__(
+        self,
+        *,
+        num_null_conditioners: int
+    ):
+        super().__init__()
+        self.cond_fns = tuple(Identity() for _ in range(num_null_conditioners))
+
+        self.register_buffer('_device_param', torch.tensor(0.), persistent = False)
+
+    @property
+    def device(self):
+        return next(self.buffers()).device
+
+    def embed_texts(self, texts: List[str]):
+        assert False, 'null conditioner cannot embed text'
+
+    def forward(self, *args, **kwarg) -> Tuple[Identity, ...]:
+        return self.cond_fns
+
+# text conditioner with FiLM
 
 @beartype
 class TextConditioner(Conditioner):
