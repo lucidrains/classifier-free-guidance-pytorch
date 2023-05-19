@@ -4,7 +4,7 @@ setup(
   name = 'classifier-free-guidance-pytorch',
   packages = find_packages(exclude=[]),
   include_package_data = True,
-  version = '0.1.4',
+  version = '0.1.5',
   license='MIT',
   description = 'Classifier Free Guidance - Pytorch',
   author = 'Phil Wang',

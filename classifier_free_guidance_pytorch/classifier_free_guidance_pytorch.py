@@ -14,6 +14,7 @@ from inspect import signature
 
 from classifier_free_guidance_pytorch.t5 import T5Adapter
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
+from classifier_free_guidance_pytorch.attend import Attend
 
 # constants
 
@@ -138,7 +139,8 @@ class Attention(nn.Module):
         heads = 8,
         dim_context = None,
         norm_context = False,
-        num_null_kv = 0
+        num_null_kv = 0,
+        flash = False
     ):
         super().__init__()
         self.heads = heads
@@ -149,6 +151,8 @@ class Attention(nn.Module):
 
         self.norm = nn.LayerNorm(dim)
         self.context_norm = nn.LayerNorm(dim_context) if norm_context else nn.Identity()
+
+        self.attend = Attend(flash = flash)        
 
         self.num_null_kv = num_null_kv
         self.null_kv = nn.Parameter(torch.randn(2, num_null_kv, dim_head))
@@ -179,20 +183,13 @@ class Attention(nn.Module):
             k = torch.cat((null_k, k), dim = -2)
             v = torch.cat((null_v, v), dim = -2)
 
-        q = rearrange(q, 'b n (h d) -> b h n d', h = self.heads)
-
-        q = q * self.scale
-
-        sim = einsum('b h i d, b j d -> b h i j', q, k)
-
         if exists(mask):
             mask = F.pad(mask, (self.num_null_kv, 0), value = True)
             mask = rearrange(mask, 'b j -> b 1 1 j')
-            sim = sim.masked_fill(~mask, -torch.finfo(sim.dtype).max)
 
-        attn = sim.softmax(dim = -1)
+        q = rearrange(q, 'b n (h d) -> b h n d', h = self.heads)
 
-        out = einsum('b h i j, b j d -> b h i d', attn, v)
+        out = self.attend(q, k, v, mask = mask)
 
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
@@ -250,7 +247,8 @@ class CrossAttention(nn.Module):
         dim,
         hidden_dim,
         heads = 8,
-        dim_head = 64
+        dim_head = 64,
+        flash = False
     ):
         super().__init__()
         self.attn = Attention(
@@ -259,7 +257,8 @@ class CrossAttention(nn.Module):
             norm_context = True,
             num_null_kv = 1,
             dim_head = dim_head,
-            heads = heads
+            heads = heads,
+            flash = flash
         )
 
     def forward(
@@ -417,7 +416,8 @@ class AttentionTextConditioner(Conditioner):
         hiddens_channel_first = True,
         dim_latent = None,
         attn_dim_head = 64,
-        attn_heads = 8
+        attn_heads = 8,
+        flash = True
     ):
         super().__init__()
         model_types = cast_tuple(model_types)
@@ -453,7 +453,7 @@ class AttentionTextConditioner(Conditioner):
         self.cond_drop_prob = cond_drop_prob
 
         for hidden_dim in hidden_dims:
-            self.conditioners.append(CrossAttention(dim_latent, hidden_dim))
+            self.conditioners.append(CrossAttention(dim_latent, hidden_dim, flash = flash))
 
         self.register_buffer('_device_param', torch.tensor(0.), persistent = False)
 
