@@ -76,6 +76,7 @@ def classifier_free_guidance(
         self,
         *args,
         cond_scale: float = 1.,
+        rescale_phi: float = 0.,
         **kwargs
     ):
         @wraps(fn)
@@ -129,7 +130,21 @@ def classifier_free_guidance(
             return logits
 
         null_logits = fn_maybe_with_text(self, *args, **kwargs_with_cond_dropout)
-        return null_logits + (logits - null_logits) * cond_scale
+        scaled_logits = null_logits + (logits - null_logits) * cond_scale
+
+        logits_out = scaled_logits
+
+        if rescale_phi > 0:
+            # proposed in https://arxiv.org/abs/2305.08891
+            # as a way to prevent over-saturation with classifier free guidance
+            # works both in pixel as well as latent space as opposed to the solution from imagen
+
+            dims = tuple(range(1, logits.ndim - 1))
+            rescaled_logits = scaled_logits * (logits.std(dim = dims, keepdim = True) / scaled_logits.std(dim = dims, keepdim= True))
+
+            logits_out = rescaled_logits * rescale_phi + (1. - rescale_phi) * logits
+
+        return logits_out
 
     return inner
 

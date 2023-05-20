@@ -198,3 +198,11 @@ guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands f
     year    = {2022}
 }
 ```
+
+```bibtex
+@inproceedings{Lin2023CommonDN,
+    title   = {Common Diffusion Noise Schedules and Sample Steps are Flawed},
+    author  = {Shanchuan Lin and Bingchen Liu and Jiashi Li and Xiao Yang},
+    year    = {2023}
+}
+```
