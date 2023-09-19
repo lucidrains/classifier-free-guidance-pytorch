@@ -141,7 +141,7 @@ def classifier_free_guidance(
 
         dims = tuple(range(1, logits.ndim - 1))
         rescaled_logits = scaled_logits * (logits.std(dim = dims, keepdim = True) / scaled_logits.std(dim = dims, keepdim= True))
-        return rescaled_logits * rescale_phi + (1. - rescale_phi) * logits
+        return rescaled_logits * rescale_phi + scaled_logits * (1. - rescale_phi)
 
     return inner
 
