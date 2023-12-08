@@ -60,7 +60,7 @@ text_conditioner = AttentionTextConditioner(
 )
 ```
 
-## Magic Decorator (wip)
+## Magic Class Decorator
 
 This is a work in progress to make it as easy as possible to text condition your network.
 
@@ -99,56 +99,54 @@ pred = model(data)
 
 You would like to condition the hidden layers (`hiddens1` and `hiddens2`) with text. Each batch element here would get its own free text conditioning
 
-This has been whittled down to ~4 step using this repository. Always open to suggestions
+This has been whittled down to ~3 step using this repository.
 
 ```python
 import torch
 from torch import nn
 
-from classifier_free_guidance_pytorch import TextConditioner, classifier_free_guidance
+from classifier_free_guidance_pytorch import classifier_free_guidance_class_decorator
 
+@classifier_free_guidance_class_decorator
 class MLP(nn.Module):
-    def __init__(
-        self,
-        dim
-    ):
+    def __init__(self, dim):
         super().__init__()
+
         self.proj_in = nn.Sequential(nn.Linear(dim, dim * 2), nn.ReLU())
         self.proj_mid = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU())
         self.proj_out = nn.Linear(dim, 1)
 
-        # (1) you must instantiate a text conditioner
-
-        self.text_conditioner = TextConditioner(
-            model_types = ('t5', 'clip'),  # in this example, conditioning on both T5 and OpenCLIP
-            hidden_dims = (dim * 2, dim),  # and pass in the hidden dimensions you would like to condition on. in this case there are two hidden dimensions (dim * 2 and dim, after the first and second projections)
-            cond_drop_prob = 0.25          # conditional dropout probability for classifier free guidance. can be set to 0. if you do not need it and just want the text conditioning
-        )
-
-    @classifier_free_guidance # (2) add the magic decorator to your model forward function
     def forward(
         self,
         inp,
-        cond_fns # List[Callable] - (2) your forward function now receives a list of conditioning functions, which you invoke on your hidden tensors
+        cond_fns # List[Callable] - (1) your forward function now receives a list of conditioning functions, which you invoke on your hidden tensors
     ):
         cond_hidden1, cond_hidden2 = cond_fns # conditioning functions are given back in the order of the `hidden_dims` set on the text conditioner
 
         hiddens1 = self.proj_in(inp)
-        hiddens1 = cond_hidden1(hiddens1) # (3) condition the first hidden layer with FiLM
+        hiddens1 = cond_hidden1(hiddens1) # (2) condition the first hidden layer with FiLM
 
         hiddens2 = self.proj_mid(hiddens1)
         hiddens2 = cond_hidden2(hiddens2) # condition the second hidden layer with FiLM
 
         return self.proj_out(hiddens2)
 
-# instantiate your model
+# instantiate your model - extra keyword arguments will need to be defined, prepended by `text_condition_`
 
-model = MLP(dim = 256)
+model = MLP(
+    dim = 256,
+    text_condition_type = 'film',                 # can be film, attention, or null (none)
+    text_condition_model_types = ('t5', 'clip'),  # in this example, conditioning on both T5 and OpenCLIP
+    text_condition_hidden_dims = (512, 256),      # and pass in the hidden dimensions you would like to condition on. in this case there are two hidden dimensions (dim * 2 and dim, after the first and second projections)
+    text_condition_cond_drop_prob = 0.25          # conditional dropout probability for classifier free guidance. can be set to 0. if you do not need it and just want the text conditioning
+)
 
 # now you have your input data as well as corresponding free text as List[str]
 
 data = torch.randn(2, 256)
 texts = ['a description', 'another description']
+
+model.embed_texts(texts)
 
 # (4) train your model, passing in your list of strings as 'texts'
 
@@ -158,6 +156,7 @@ pred  = model(data, texts = texts)
 
 model.eval()
 guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands for conditioning scale from classifier free guidance paper
+
 ```
 
 ## Todo
