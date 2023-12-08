@@ -146,7 +146,7 @@ model = MLP(
 data = torch.randn(2, 256)
 texts = ['a description', 'another description']
 
-# (4) train your model, passing in your list of strings as 'texts'
+# (3) train your model, passing in your list of strings as 'texts'
 
 pred  = model(data, texts = texts)
 
