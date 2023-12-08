@@ -4,7 +4,7 @@ setup(
   name = 'classifier-free-guidance-pytorch',
   packages = find_packages(exclude=[]),
   include_package_data = True,
-  version = '0.2.4',
+  version = '0.3.0',
   license='MIT',
   description = 'Classifier Free Guidance - Pytorch',
   author = 'Phil Wang',
@@ -19,10 +19,10 @@ setup(
   ],
   install_requires=[
     'beartype',
-    'einops>=0.6',
+    'einops>=0.7',
     'ftfy',
     'open-clip-torch>=2.8.0',
-    'torch>=1.6',
+    'torch>=2.0',
     'transformers[torch]'
   ],
   classifiers=[

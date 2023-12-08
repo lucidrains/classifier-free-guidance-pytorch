@@ -7,8 +7,8 @@ from torch import nn, einsum
 from einops import rearrange, repeat, pack, unpack
 
 from beartype import beartype
-from beartype.typing import Callable, Tuple, Optional, List, Literal, Union
 from beartype.door import is_bearable
+from beartype.typing import Callable, Tuple, Optional, List, Literal, Union
 
 from inspect import signature
 
@@ -144,6 +144,78 @@ def classifier_free_guidance(
         return rescaled_logits * rescale_phi + scaled_logits * (1. - rescale_phi)
 
     return inner
+
+# class decorator
+
+@beartype
+def classifier_free_guidance_class_decorator(
+    orig_class,
+    cond_drop_prob_keyname = COND_DROP_KEY_NAME,
+    texts_key_name = TEXTS_KEY_NAME,
+    text_embeds_key_name = TEXT_EMBEDS_KEY_NAME,
+    cond_fns_keyname = CONDITION_FUNCTION_KEY_NAME,
+    text_conditioner_name = TEXT_CONDITIONER_NAME
+):
+    assert issubclass(orig_class, nn.Module)
+
+    # decorate init
+
+    orig_init = orig_class.__init__
+
+    @beartype
+    def __init__(
+        self,
+        *args,
+        text_condition_type: Union[
+            Literal['film'],
+            Literal['attention'],
+            Literal['null']
+        ] = 'film',
+        text_condition_model_types: Tuple[str, ...] = ('t5',),
+        text_condition_hidden_dims: Tuple[int, ...],
+        text_condition_cond_drop_prob: float,
+        **kwargs
+    ):
+        orig_init(self, *args, **kwargs)
+
+        if text_condition_type == 'film':
+            condition_klass = TextConditioner
+        elif text_condition_type == 'attention':
+            condition_klass = AttentionTextConditioner
+        else:
+            condition_klass = NullConditioner
+
+        self.text_conditioner = condition_klass(
+            model_types = text_condition_model_types,
+            hidden_dims = text_condition_hidden_dims,
+            cond_drop_prob = text_condition_cond_drop_prob
+        )
+
+    orig_class.__init__ = __init__
+
+    # decorate forward
+
+    decorated_forward = classifier_free_guidance(
+        orig_class.forward,
+        cond_drop_prob_keyname = cond_drop_prob_keyname,
+        texts_key_name = texts_key_name,
+        text_embeds_key_name = text_embeds_key_name,
+        cond_fns_keyname = cond_fns_keyname,
+        text_conditioner_name = text_conditioner_name
+    )
+
+    orig_class.forward = decorated_forward
+
+    # forward `embed_texts` to the `text_conditioner.embed_texts`
+
+    @beartype
+    def embed_texts(self, texts: List[str]):
+        return self.text_conditioner.embed_texts(texts)
+
+    if not hasattr(orig_class, 'embed_texts'):
+        orig_class.embed_texts = embed_texts
+
+    return orig_class
 
 # attention
 
@@ -308,9 +380,11 @@ class NullConditioner(Conditioner):
     def __init__(
         self,
         *,
-        num_null_conditioners: int
+        hidden_dims: Tuple[int, ...],
+        **kwargs
     ):
         super().__init__()
+        num_null_conditioners = len(hidden_dims)
         self.cond_fns = tuple(Identity() for _ in range(num_null_conditioners))
 
         self.register_buffer('_device_param', torch.tensor(0.), persistent = False)
