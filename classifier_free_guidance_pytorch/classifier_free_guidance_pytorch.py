@@ -96,6 +96,10 @@ def classifier_free_guidance(
 
                 text_conditioner = getattr(self, text_conditioner_name, None)
 
+                cond_drop_prob = kwargs.pop(cond_drop_prob_keyname, None)
+
+                assert not exists(cond_drop_prob) or 0. <= cond_drop_prob <= 1.
+
                 # auto convert texts -> conditioning functions
 
                 if exists(texts) ^ exists(text_embeds):
@@ -104,13 +108,13 @@ def classifier_free_guidance(
 
                     assert exists(text_conditioner) and is_bearable(text_conditioner, Conditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
-                    cond_drop_prob = kwargs.pop(cond_drop_prob_keyname, None)
-
                     text_condition_input = dict(texts = texts) if exists(texts) else dict(text_embeds = text_embeds)
 
                     cond_fns, raw_text_cond = text_conditioner(**text_condition_input, cond_drop_prob = cond_drop_prob)
 
                 elif isinstance(text_conditioner, NullConditioner):
+                    assert cond_drop_prob == 0., 'null conditioner has nothing to dropout'
+
                     cond_fns, raw_text_cond = text_conditioner()
 
                 if 'cond_fns' in fn_params:
@@ -129,7 +133,7 @@ def classifier_free_guidance(
             return fn_maybe_with_text(self, *args, **kwargs)
 
         assert cond_scale >= 1, 'invalid conditioning scale, must be greater or equal to 1'
-        
+
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
         kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
 
