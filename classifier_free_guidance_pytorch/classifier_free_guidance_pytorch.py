@@ -457,6 +457,9 @@ class TextConditioner(Conditioner):
         self.cond_drop_prob = cond_drop_prob
 
         total_latent_dim = sum(self.latent_dims)
+
+        self.dim_latent = total_latent_dim
+
         mlp_stem_output_dim = total_latent_dim * text_embed_stem_dim_mult
 
         self.text_embed_stem_mlp = nn.Sequential(
@@ -578,6 +581,8 @@ class AttentionTextConditioner(Conditioner):
 
         dim_latent = default(dim_latent, max([model.dim_latent for model in text_models]))
 
+        self.dim_latent = dim_latent
+
         for model in text_models:
             self.to_latent_dims.append(nn.Linear(model.dim_latent, dim_latent))
 
@@ -677,7 +682,8 @@ class TextEmbeddingReturner(Conditioner):
     def __init__(
         self,
         *,
-        hidden_dims: Tuple[int, ...],
+        dim_latent = None,
+        hidden_dims: Tuple[int, ...] = tuple(),
         model_types = 't5',
         model_names = None,
         cond_drop_prob = 0.,
@@ -701,6 +707,8 @@ class TextEmbeddingReturner(Conditioner):
         self.to_latent_dims = nn.ModuleList([])
 
         dim_latent = default(dim_latent, max([model.dim_latent for model in text_models]))
+
+        self.dim_latent = dim_latent
 
         for model in text_models:
             self.to_latent_dims.append(nn.Linear(model.dim_latent, dim_latent))
