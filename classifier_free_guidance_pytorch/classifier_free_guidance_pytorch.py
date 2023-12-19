@@ -635,7 +635,12 @@ class AttentionTextConditioner(Conditioner):
         TextCondReturn
     ]:
 
-        assert exists(texts) ^ exists(text_embeds)
+        assert exists(texts) or exists(text_embeds)
+
+        if exists(text_embeds) and exists(texts):
+            # text embed takes precedence
+            # for eventual caching of text embeds during the first epoch
+            texts = None
 
         if self.training:
             cond_drop_prob = default(cond_drop_prob, self.cond_drop_prob)
