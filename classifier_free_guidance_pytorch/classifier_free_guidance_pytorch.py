@@ -1,5 +1,5 @@
 from collections import namedtuple
-from functools import wraps, partial
+from functools import wraps, partial, cache
 
 import torch
 import torch.nn.functional as F
@@ -92,7 +92,7 @@ def classifier_free_guidance(
 
                 assert not (exists(texts) and exists(text_embeds))
 
-                cond_fns = None
+                raw_text_cond = cond_fns = None
 
                 text_conditioner = getattr(self, text_conditioner_name, None)
 
@@ -228,9 +228,19 @@ def classifier_free_guidance_class_decorator(
     def embed_texts(self, texts: List[str]):
         return self.text_conditioner.embed_texts(texts)
 
+    @property
+    @cache
+    def max_cond_text_len(self):
+        total_cond_text_len = sum([text_model.max_text_len for text_model in self.text_conditioner.text_models])
+        return total_cond_text_len
+
+    if not hasattr(orig_class, 'max_cond_text_len'):
+        orig_class.max_cond_text_len = max_cond_text_len
+
     if not hasattr(orig_class, 'embed_texts'):
         orig_class.embed_texts = embed_texts
 
+    orig_class.__decorated_with_cfg = True
     return orig_class
 
 # attention
