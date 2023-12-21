@@ -1,4 +1,4 @@
-## Classifier Free Guidance - Pytorch (wip)
+## Classifier Free Guidance - Pytorch
 
 Implementation of <a href="https://arxiv.org/abs/2207.12598">Classifier Free Guidance</a> in Pytorch, with emphasis on text conditioning, and flexibility to include multiple text embedding models, as done in <a href="https://deepimagination.cc/eDiff-I/">eDiff-I</a>
 
