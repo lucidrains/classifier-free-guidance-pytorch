@@ -151,10 +151,10 @@ def classifier_free_guidance(
 
         outputs = fn_maybe_with_text(self, *args, **fn_kwargs, **kwargs_without_cond_dropout)
 
-        logits, *rest = cast_tuple(outputs)
-
         if cond_scale == 1:
-            return logits
+            return outputs
+
+        logits, *rest = cast_tuple(outputs)
 
         # nulled forward
 
