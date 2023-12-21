@@ -9,7 +9,7 @@ from einops import rearrange, repeat, pack, unpack
 
 from beartype import beartype
 from beartype.door import is_bearable
-from beartype.typing import Callable, Tuple, Optional, List, Literal, Union
+from beartype.typing import Callable, Tuple, Optional, List, Literal, Union, Dict, Any
 
 from inspect import signature
 
@@ -35,6 +35,9 @@ TextCondReturn = namedtuple('TextCondReturn', [
 
 def exists(val):
     return val is not None
+
+def is_empty(l):
+    return len(l) == 0
 
 def default(*values):
     for value in values:
@@ -82,6 +85,7 @@ def classifier_free_guidance(
         *args,
         cond_scale: float = 1.,
         rescale_phi: float = 0.,
+        cfg_routed_kwargs: Dict[str, Tuple[Any, Any]] = dict(),   # to pass in separate arguments to forward and nulled forward calls (for handling caching when using CFG on transformer decoding)
         **kwargs
     ):
         @wraps(fn)
@@ -137,24 +141,46 @@ def classifier_free_guidance(
         kwargs_without_cond_dropout = {**kwargs, cond_drop_prob_keyname: 0.}
         kwargs_with_cond_dropout = {**kwargs, cond_drop_prob_keyname: 1.}
 
-        logits = fn_maybe_with_text(self, *args, **kwargs_without_cond_dropout)
+        # handle kwargs to be routed to forward and nulled forward separately
+        # for handling caching of both calls
+
+        fn_kwargs = {k: v[0] for k, v in cfg_routed_kwargs.items()}
+        null_fn_kwargs = {k: v[1] for k, v in cfg_routed_kwargs.items()}
+
+        # non-null forward
+
+        outputs = fn_maybe_with_text(self, *args, **fn_kwargs, **kwargs_without_cond_dropout)
+
+        logits, *rest = cast_tuple(outputs)
 
         if cond_scale == 1:
             return logits
 
-        null_logits = fn_maybe_with_text(self, *args, **kwargs_with_cond_dropout)
+        # nulled forward
+
+        null_outputs = fn_maybe_with_text(self, *args, **null_fn_kwargs, **kwargs_with_cond_dropout)
+
+        null_logits, *null_rest = cast_tuple(null_outputs)
+
+        zipped_rest = tuple(zip(rest, null_rest))
+
         scaled_logits = null_logits + (logits - null_logits) * cond_scale
 
         if rescale_phi <= 0:
-            return scaled_logits
+            logit_output = scaled_logits
+        else:
+            # proposed in https://arxiv.org/abs/2305.08891
+            # as a way to prevent over-saturation with classifier free guidance
+            # works both in pixel as well as latent space as opposed to the solution from imagen
 
-        # proposed in https://arxiv.org/abs/2305.08891
-        # as a way to prevent over-saturation with classifier free guidance
-        # works both in pixel as well as latent space as opposed to the solution from imagen
+            dims = tuple(range(1, logits.ndim - 1))
+            rescaled_logits = scaled_logits * (logits.std(dim = dims, keepdim = True) / scaled_logits.std(dim = dims, keepdim= True))
+            logit_output = rescaled_logits * rescale_phi + scaled_logits * (1. - rescale_phi)
 
-        dims = tuple(range(1, logits.ndim - 1))
-        rescaled_logits = scaled_logits * (logits.std(dim = dims, keepdim = True) / scaled_logits.std(dim = dims, keepdim= True))
-        return rescaled_logits * rescale_phi + scaled_logits * (1. - rescale_phi)
+        if is_empty(zipped_rest):
+            return logit_output
+
+        return (logit_output, *zipped_rest)
 
     return inner
 
