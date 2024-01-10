@@ -16,6 +16,7 @@ from inspect import signature
 from classifier_free_guidance_pytorch.t5 import T5Adapter
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
 from classifier_free_guidance_pytorch.attend import Attend
+from classifier_free_guidance_pytorch.bge import BGEAdapter
 
 # constants
 
@@ -413,7 +414,8 @@ class CrossAttention(nn.Module):
 
 CONDITION_CONFIG = dict(
     t5 = T5Adapter,
-    clip = OpenClipAdapter
+    clip = OpenClipAdapter,
+    bge = BGEAdapter
 )
 
 MODEL_TYPES = CONDITION_CONFIG.keys()
