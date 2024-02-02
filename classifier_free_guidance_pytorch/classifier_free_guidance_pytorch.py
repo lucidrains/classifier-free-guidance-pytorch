@@ -202,6 +202,7 @@ def classifier_free_guidance_class_decorator(
 
     orig_init = orig_class.__init__
 
+    @wraps(orig_init)
     @beartype
     def __init__(
         self,
