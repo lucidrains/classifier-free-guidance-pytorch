@@ -98,7 +98,8 @@ def t5_encode_text(texts, name = DEFAULT_T5_NAME, output_device = None):
 class T5Adapter():
     def __init__(
         self,
-        name
+        name,
+        text_embed_pad_value = 0.
     ):
         name = default(name, DEFAULT_T5_NAME)
         t5, tokenizer = get_model_and_tokenizer(name)
@@ -109,6 +110,7 @@ class T5Adapter():
         self.name =  name
         self.t5 = t5
         self.tokenizer = tokenizer
+        self.text_embed_pad_value = text_embed_pad_value
 
     @property
     def dim_latent(self):
@@ -147,7 +149,7 @@ class T5Adapter():
 
         attn_mask = attn_mask.bool()
 
-        encoded_text.masked_fill_(~attn_mask[..., None], 0.)
+        encoded_text.masked_fill_(~attn_mask[..., None], self.text_embed_pad_value)
 
         if not return_text_encodings:
             numer = encoded_text.sum(dim = -2)

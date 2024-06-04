@@ -30,7 +30,8 @@ class OpenClipAdapter():
     def __init__(
         self,
         name = DEFAULT_CLIP_NAME,
-        pretrained = DEFAULT_PRETRAINED_CLIP
+        pretrained = DEFAULT_PRETRAINED_CLIP,
+        text_embed_pad_value = 0.
     ):
         name = default(name, DEFAULT_CLIP_NAME)
         pretrained = default(pretrained, DEFAULT_PRETRAINED_CLIP)
@@ -41,6 +42,7 @@ class OpenClipAdapter():
         clip.eval()
 
         self.tokenizer = tokenizer
+        self.text_embed_pad_value = text_embed_pad_value
 
         self.eos_id = 49407
 
@@ -98,7 +100,7 @@ class OpenClipAdapter():
         assert not self.cleared
 
         text_encodings = self.text_encodings[:, :max_length]
-        text_encodings = text_encodings.masked_fill(~text_mask[..., None], 0.)
+        text_encodings = text_encodings.masked_fill(~text_mask[..., None], self.text_embed_pad_value)
         del self.text_encodings
 
         return text_encodings.float().to(output_device)

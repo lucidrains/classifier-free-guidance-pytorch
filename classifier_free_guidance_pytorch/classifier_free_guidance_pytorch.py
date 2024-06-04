@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 from collections import namedtuple
 from functools import wraps, partial, cache
 
 import torch
 import torch.nn.functional as F
+from torch.nn import Module, ModuleList
 from torch import nn, einsum, Tensor
 
 from einops import rearrange, repeat, pack, unpack
 
 from beartype import beartype
 from beartype.door import is_bearable
-from beartype.typing import Callable, Tuple, Optional, List, Literal, Union, Dict, Any
+from beartype.typing import Callable, Tuple, List, Literal, Dict, Any
 
 from inspect import signature
 
@@ -109,7 +112,7 @@ def classifier_free_guidance(
 
                 if exists(texts) ^ exists(text_embeds):
 
-                    assert is_bearable(texts, Optional[List[str]]), f'keyword `{texts_key_name}` must be a list of strings'
+                    assert is_bearable(texts, List[str] | None), f'keyword `{texts_key_name}` must be a list of strings'
 
                     assert exists(text_conditioner) and is_bearable(text_conditioner, Conditioner), 'text_conditioner must be set on your network with the correct hidden dimensions to be conditioned on'
 
@@ -196,7 +199,7 @@ def classifier_free_guidance_class_decorator(
     cond_fns_keyname = CONDITION_FUNCTION_KEY_NAME,
     text_conditioner_name = TEXT_CONDITIONER_NAME
 ):
-    assert issubclass(orig_class, nn.Module)
+    assert issubclass(orig_class, Module)
 
     # decorate init
 
@@ -207,12 +210,7 @@ def classifier_free_guidance_class_decorator(
     def __init__(
         self,
         *args,
-        text_condition_type: Union[
-            Literal['film'],
-            Literal['attention'],
-            Literal['null'],
-            Literal['raw'],
-        ] = 'film',
+        text_condition_type: Literal['film', 'attention', 'null', 'raw'] = 'film',
         text_condition_model_types: Tuple[str, ...] = ('t5',),
         text_condition_hidden_dims: Tuple[int, ...],
         text_condition_cond_drop_prob: float,
@@ -273,7 +271,7 @@ def classifier_free_guidance_class_decorator(
 
 # attention
 
-class Attention(nn.Module):
+class Attention(Module):
     def __init__(
         self,
         dim,
@@ -361,7 +359,7 @@ def rearrange_channel_first(fn):
 
 # conditioning modules
 
-class FiLM(nn.Module):
+class FiLM(Module):
     def __init__(
         self,
         dim,
@@ -383,7 +381,7 @@ class FiLM(nn.Module):
         scale, shift = map(lambda t: rearrange(t, 'b d -> b 1 d'), (scale, shift))
         return hiddens * (scale + 1) + shift
 
-class CrossAttention(nn.Module):
+class CrossAttention(Module):
     def __init__(
         self,
         dim,
@@ -421,12 +419,12 @@ CONDITION_CONFIG = dict(
 
 MODEL_TYPES = CONDITION_CONFIG.keys()
 
-class Conditioner(nn.Module):
+class Conditioner(Module):
     pass
 
 # null conditioner
 
-class Identity(nn.Module):
+class Identity(Module):
     def forward(self, t, *args, **kwargs):
         return t
 
@@ -466,7 +464,8 @@ class TextConditioner(Conditioner):
         model_names = None,
         cond_drop_prob = 0.,
         hiddens_channel_first = True,
-        text_embed_stem_dim_mult = 2
+        text_embed_stem_dim_mult = 2,
+        text_embed_pad_value = 0.
     ):
         super().__init__()
         model_types = cast_tuple(model_types)
@@ -479,13 +478,13 @@ class TextConditioner(Conditioner):
 
         for model_type, model_name in zip(model_types, model_names):
             klass = CONDITION_CONFIG.get(model_type)
-            model = klass(model_name)
+            model = klass(model_name, text_embed_pad_value = text_embed_pad_value)
             text_models.append(model)
 
         self.text_models = text_models
         self.latent_dims = [model.dim_latent for model in text_models]
 
-        self.conditioners = nn.ModuleList([])
+        self.conditioners = ModuleList([])
 
         self.hidden_dims = hidden_dims
         self.num_condition_fns = len(hidden_dims)
@@ -529,8 +528,8 @@ class TextConditioner(Conditioner):
 
     def forward(
         self,
-        texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tensor] = None,
+        texts: List[str] | None = None,
+        text_embeds: Tensor | None = None,
         cond_drop_prob = None,
         repeat_batch = 1,               # for robotic transformer edge case
     ) -> Tuple[
@@ -598,7 +597,8 @@ class AttentionTextConditioner(Conditioner):
         dim_latent = None,
         attn_dim_head = 64,
         attn_heads = 8,
-        flash = True
+        flash = True,
+        text_embed_pad_value = 0.
     ):
         super().__init__()
         model_types = cast_tuple(model_types)
@@ -611,12 +611,12 @@ class AttentionTextConditioner(Conditioner):
 
         for model_type, model_name in zip(model_types, model_names):
             klass = CONDITION_CONFIG.get(model_type)
-            model = klass(model_name)
+            model = klass(model_name, text_embed_pad_value = text_embed_pad_value)
             text_models.append(model)
 
         self.text_models = text_models
 
-        self.to_latent_dims = nn.ModuleList([])
+        self.to_latent_dims = ModuleList([])
 
         dim_latent = default(dim_latent, max([model.dim_latent for model in text_models]))
 
@@ -625,7 +625,7 @@ class AttentionTextConditioner(Conditioner):
         for model in text_models:
             self.to_latent_dims.append(nn.Linear(model.dim_latent, dim_latent))
 
-        self.conditioners = nn.ModuleList([])
+        self.conditioners = ModuleList([])
 
         self.hidden_dims = hidden_dims
         self.num_condition_fns = len(hidden_dims)
@@ -633,6 +633,7 @@ class AttentionTextConditioner(Conditioner):
 
         assert len(self.hiddens_channel_first) == self.num_condition_fns
 
+        self.text_embed_pad_value = text_embed_pad_value
         self.cond_drop_prob = cond_drop_prob
 
         for hidden_dim in hidden_dims:
@@ -654,7 +655,7 @@ class AttentionTextConditioner(Conditioner):
 
             text_embed = text_embed.to(device)
 
-            mask = (text_embed != 0).any(dim = -1)
+            mask = (text_embed != self.text_embed_pad_value).any(dim = -1)
 
             text_embed = to_latent(text_embed)
             text_embed = text_embed.masked_fill(~mask[..., None], 0.)
@@ -665,8 +666,8 @@ class AttentionTextConditioner(Conditioner):
 
     def forward(
         self,
-        texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tensor] = None,
+        texts: List[str] | None = None,
+        text_embeds: Tensor | None = None,
         cond_drop_prob = None,
         repeat_batch = 1,  # for robotic transformer edge case
     ) -> Tuple[
@@ -695,7 +696,7 @@ class AttentionTextConditioner(Conditioner):
         if not exists(text_embeds):
             text_embeds = self.embed_texts(texts)
 
-        mask = (text_embeds != 0).any(dim = -1)
+        mask = (text_embeds != self.text_embed_pad_value).any(dim = -1)
 
         if cond_drop_prob > 0.:
             prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = self.device)
@@ -727,11 +728,11 @@ class TextEmbeddingReturner(Conditioner):
         self,
         *,
         dim_latent = None,
-        hidden_dims: Tuple[int, ...] = tuple(),
+        hidden_dims: Tuple[int, ...] = (),
         model_types = 't5',
         model_names = None,
         cond_drop_prob = 0.,
-        pad_id = 0
+        text_embed_pad_value = 0.
     ):
         super().__init__()
         model_types = cast_tuple(model_types)
@@ -744,13 +745,13 @@ class TextEmbeddingReturner(Conditioner):
 
         for model_type, model_name in zip(model_types, model_names):
             klass = CONDITION_CONFIG.get(model_type)
-            model = klass(model_name)
+            model = klass(model_name, text_embed_pad_value = text_embed_pad_value)
             text_models.append(model)
 
         self.text_models = text_models
-        self.pad_id = pad_id
+        self.text_embed_pad_value = text_embed_pad_value
 
-        self.to_latent_dims = nn.ModuleList([])
+        self.to_latent_dims = ModuleList([])
 
         dim_latent = default(dim_latent, max([model.dim_latent for model in text_models]))
 
@@ -759,7 +760,7 @@ class TextEmbeddingReturner(Conditioner):
         for model in text_models:
             self.to_latent_dims.append(nn.Linear(model.dim_latent, dim_latent))
 
-        self.conditioners = nn.ModuleList([])
+        self.conditioners = ModuleList([])
 
         self.cond_drop_prob = cond_drop_prob
 
@@ -782,7 +783,7 @@ class TextEmbeddingReturner(Conditioner):
 
             text_embed = text_embed.to(device)
 
-            mask = (text_embed != 0).any(dim = -1)
+            mask = (text_embed != self.text_embed_pad_value).any(dim = -1)
 
             text_embed = to_latent(text_embed)
             text_embed = text_embed.masked_fill(~mask[..., None], 0.)
@@ -793,8 +794,8 @@ class TextEmbeddingReturner(Conditioner):
 
     def forward(
         self,
-        texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tensor] = None,
+        texts: List[str] | None = None,
+        text_embeds: Tensor | None = None,
         cond_drop_prob = None
     ) -> Tuple[
         Tuple[Callable, ...],
@@ -817,7 +818,7 @@ class TextEmbeddingReturner(Conditioner):
         if not exists(text_embeds):
             text_embeds = self.embed_texts(texts)
 
-        mask = (text_embeds != self.pad_id).any(dim = -1)
+        mask = (text_embeds != self.text_embed_pad_value).any(dim = -1)
 
         if cond_drop_prob > 0.:
             prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = self.device)

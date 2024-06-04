@@ -11,7 +11,8 @@ transformers.logging.set_verbosity_error()
 class BGEAdapter():
     def __init__(
         self,
-        name
+        name,
+        text_embed_pad_value = 0.
     ):
         name = 'BAAI/bge-base-en-v1.5'
         tokenizer = AutoTokenizer.from_pretrained(name)
@@ -24,6 +25,7 @@ class BGEAdapter():
         self.name =  name
         self.model = model
         self.tokenizer = tokenizer
+        self.text_embed_pad_value = text_embed_pad_value
 
     @property
     def dim_latent(self):
