@@ -731,6 +731,7 @@ class TextEmbeddingReturner(Conditioner):
         model_types = 't5',
         model_names = None,
         cond_drop_prob = 0.,
+        pad_id = 0
     ):
         super().__init__()
         model_types = cast_tuple(model_types)
@@ -747,6 +748,7 @@ class TextEmbeddingReturner(Conditioner):
             text_models.append(model)
 
         self.text_models = text_models
+        self.pad_id = pad_id
 
         self.to_latent_dims = nn.ModuleList([])
 
@@ -815,7 +817,7 @@ class TextEmbeddingReturner(Conditioner):
         if not exists(text_embeds):
             text_embeds = self.embed_texts(texts)
 
-        mask = (text_embeds != 0).any(dim = -1)
+        mask = (text_embeds != self.pad_id).any(dim = -1)
 
         if cond_drop_prob > 0.:
             prob_keep_mask = prob_mask_like((batch, 1), 1. - cond_drop_prob, device = self.device)
