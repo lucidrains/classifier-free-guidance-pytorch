@@ -61,4 +61,4 @@ class BGEAdapter():
 
         encoded_text = encoded_text.masked_fill_(~attn_mask[..., None], 0.)
 
-        return model_output.last_hidden_state.to(output_device)
+        return encoded_text
