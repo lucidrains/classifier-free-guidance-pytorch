@@ -658,7 +658,7 @@ class AttentionTextConditioner(Conditioner):
             mask = (text_embed != self.text_embed_pad_value).any(dim = -1)
 
             text_embed = to_latent(text_embed)
-            text_embed = text_embed.masked_fill(~mask[..., None], 0.)
+            text_embed = text_embed.masked_fill(~mask[..., None], self.text_embed_pad_value)
 
             text_embeds.append(text_embed)
 
@@ -786,7 +786,7 @@ class TextEmbeddingReturner(Conditioner):
             mask = (text_embed != self.text_embed_pad_value).any(dim = -1)
 
             text_embed = to_latent(text_embed)
-            text_embed = text_embed.masked_fill(~mask[..., None], 0.)
+            text_embed = text_embed.masked_fill(~mask[..., None], self.text_embed_pad_value)
 
             text_embeds.append(text_embed)
 
