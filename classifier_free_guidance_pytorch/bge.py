@@ -55,5 +55,10 @@ class BGEAdapter():
             sentence_embeddings = model_output[0][:, 0]
             sentence_embeddings = torch.nn.functional.normalize(sentence_embeddings, p=2, dim=1)
             return sentence_embeddings  # Return normalized CLS embedding
+        
+        encoded_text = model_output.last_hidden_state.to(output_device)
+        attn_mask = encoded_input.attention_mask.bool()
+
+        encoded_text = encoded_text.masked_fill_(~attn_mask[..., None], 0.)
 
         return model_output.last_hidden_state.to(output_device)
