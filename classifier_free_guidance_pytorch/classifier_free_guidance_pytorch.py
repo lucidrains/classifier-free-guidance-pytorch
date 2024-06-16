@@ -89,6 +89,7 @@ def classifier_free_guidance(
         *args,
         cond_scale: float = 1.,
         rescale_phi: float = 0.,
+        return_unconditioned: bool = False,
         cfg_routed_kwargs: Dict[str, Tuple[Any, Any]] = dict(),   # to pass in separate arguments to forward and nulled forward calls (for handling caching when using CFG on transformer decoding)
         **kwargs
     ):
@@ -181,10 +182,20 @@ def classifier_free_guidance(
             rescaled_logits = scaled_logits * (logits.std(dim = dims, keepdim = True) / scaled_logits.std(dim = dims, keepdim= True))
             logit_output = rescaled_logits * rescale_phi + scaled_logits * (1. - rescale_phi)
 
-        if is_empty(zipped_rest):
-            return logit_output
+        # can return unconditioned prediction
+        # for use in CFG++ https://arxiv.org/abs/2406.08070
 
-        return (logit_output, *zipped_rest)
+        output = logit_output
+
+        if return_unconditioned:
+            output = (output, null_logits)
+
+        # handle multiple outputs from original function
+
+        if is_empty(zipped_rest):
+            return output
+
+        return (output, *zipped_rest)
 
     return inner
 
