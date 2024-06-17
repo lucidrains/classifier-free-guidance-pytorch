@@ -16,6 +16,8 @@ from beartype.typing import Callable, Tuple, List, Literal, Dict, Any
 
 from inspect import signature
 
+from classifier_free_guidance_pytorch.typing import typecheck, beartype_isinstance
+
 from classifier_free_guidance_pytorch.t5 import T5Adapter
 from classifier_free_guidance_pytorch.open_clip import OpenClipAdapter
 from classifier_free_guidance_pytorch.attend import Attend
@@ -70,7 +72,7 @@ def prob_mask_like(shape, prob, device):
 
 # classifier free guidance with automatic text conditioning
 
-@beartype
+@typecheck
 def classifier_free_guidance(
     fn: Callable,
     cond_drop_prob_keyname = COND_DROP_KEY_NAME,
@@ -201,7 +203,7 @@ def classifier_free_guidance(
 
 # class decorator
 
-@beartype
+@typecheck
 def classifier_free_guidance_class_decorator(
     orig_class,
     cond_drop_prob_keyname = COND_DROP_KEY_NAME,
@@ -217,7 +219,7 @@ def classifier_free_guidance_class_decorator(
     orig_init = orig_class.__init__
 
     @wraps(orig_init)
-    @beartype
+    @typecheck
     def __init__(
         self,
         *args,
@@ -261,7 +263,7 @@ def classifier_free_guidance_class_decorator(
 
     # forward `embed_texts` to the `text_conditioner.embed_texts`
 
-    @beartype
+    @typecheck
     def embed_texts(self, texts: List[str]):
         return self.text_conditioner.embed_texts(texts)
 
@@ -439,8 +441,8 @@ class Identity(Module):
     def forward(self, t, *args, **kwargs):
         return t
 
-@beartype
 class NullConditioner(Conditioner):
+    @typecheck
     def __init__(
         self,
         *,
@@ -457,6 +459,7 @@ class NullConditioner(Conditioner):
     def device(self):
         return next(self.buffers()).device
 
+    @typecheck
     def embed_texts(self, texts: List[str]):
         assert False, 'null conditioner cannot embed text'
 
@@ -465,8 +468,8 @@ class NullConditioner(Conditioner):
 
 # text conditioner with FiLM
 
-@beartype
 class TextConditioner(Conditioner):
+    @typecheck
     def __init__(
         self,
         *,
@@ -527,6 +530,7 @@ class TextConditioner(Conditioner):
     def device(self):
         return next(self.buffers()).device
 
+    @typecheck
     def embed_texts(self, texts: List[str]):
         device = self.device
 
@@ -537,6 +541,7 @@ class TextConditioner(Conditioner):
 
         return torch.cat(text_embeds, dim = -1)
 
+    @typecheck
     def forward(
         self,
         texts: List[str] | None = None,
@@ -595,7 +600,7 @@ class TextConditioner(Conditioner):
 
 # cross attention text conditioner
 
-@beartype
+@typecheck
 class AttentionTextConditioner(Conditioner):
     def __init__(
         self,
@@ -675,6 +680,7 @@ class AttentionTextConditioner(Conditioner):
 
         return torch.cat(text_embeds, dim = -2)
 
+    @typecheck
     def forward(
         self,
         texts: List[str] | None = None,
@@ -733,8 +739,8 @@ class AttentionTextConditioner(Conditioner):
 
 # return raw text embedding
 
-@beartype
 class TextEmbeddingReturner(Conditioner):
+    @typecheck
     def __init__(
         self,
         *,
@@ -784,6 +790,7 @@ class TextEmbeddingReturner(Conditioner):
     def device(self):
         return next(self.buffers()).device
 
+    @typecheck
     def embed_texts(self, texts: List[str]):
         device = self.device
 
@@ -803,6 +810,7 @@ class TextEmbeddingReturner(Conditioner):
 
         return torch.cat(text_embeds, dim = -2)
 
+    @typecheck
     def forward(
         self,
         texts: List[str] | None = None,
