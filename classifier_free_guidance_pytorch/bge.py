@@ -43,8 +43,12 @@ class BGEAdapter():
         return_text_encodings = False,
         output_device = None
     ):
-         
-        encoded_input  = self.tokenizer(texts, padding=True, truncation=True, return_tensors='pt').to("cuda")
+        if output_device is None:
+            output_device = self.model.device
+        elif output_device != self.model.device:
+            self.model = self.model.to(output_device) 
+               
+        encoded_input  = self.tokenizer(texts, padding=True, truncation=True, return_tensors='pt').to(output_device)
  
         self.model.eval()
          

@@ -203,3 +203,12 @@ guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands f
     year    = {2023}
 }
 ```
+
+```bibtex
+@inproceedings{Chung2024CFGMC,
+    title   = {CFG++: Manifold-constrained Classifier Free Guidance for Diffusion Models},
+    author  = {Hyungjin Chung and Jeongsol Kim and Geon Yeong Park and Hyelin Nam and Jong Chul Ye},
+    year    = {2024},
+    url     = {https://api.semanticscholar.org/CorpusID:270391454}
+}
+```
