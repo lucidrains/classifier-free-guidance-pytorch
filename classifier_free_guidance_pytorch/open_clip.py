@@ -6,7 +6,6 @@ from torch import nn, einsum
 import torch.nn.functional as F
 
 import open_clip
-from classifier_free_guidance_pytorch.tokenizer import tokenizer
 
 # constants
 
@@ -41,7 +40,7 @@ class OpenClipAdapter():
         self.clip = clip
         clip.eval()
 
-        self.tokenizer = tokenizer
+        self.tokenizer = open_clip.get_tokenizer(name)
         self.text_embed_pad_value = text_embed_pad_value
 
         self.eos_id = 49407
@@ -82,7 +81,8 @@ class OpenClipAdapter():
         return_text_encodings = False,
         output_device = None
     ):
-        texts, max_length = self.tokenizer.tokenize(texts)
+        texts = self.tokenizer(texts)
+        max_length = (texts != 0).sum(dim=1).max().item()
         texts = texts[..., :self.max_text_len]
 
         text_embeds = self.clip.encode_text(texts)
