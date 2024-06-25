@@ -6,7 +6,6 @@ from torch import nn, einsum
 import torch.nn.functional as F
 
 import open_clip
-from classifier_free_guidance_pytorch.tokenizer import tokenizer
 
 # constants
 
