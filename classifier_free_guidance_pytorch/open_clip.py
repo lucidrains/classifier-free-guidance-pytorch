@@ -82,7 +82,7 @@ class OpenClipAdapter():
         output_device = None
     ):
         texts = self.tokenizer(texts)
-        max_length = (texts != 0).sum(dim=1)
+        max_length = (texts != 0).sum(dim=1).max().item()
         texts = texts[..., :self.max_text_len]
 
         text_embeds = self.clip.encode_text(texts)
