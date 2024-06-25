@@ -10,7 +10,6 @@ from torch import nn, einsum, Tensor
 
 from einops import rearrange, repeat, pack, unpack
 
-from beartype import beartype
 from beartype.door import is_bearable
 from beartype.typing import Callable, Tuple, List, Literal, Dict, Any
 
@@ -748,21 +747,23 @@ class TextEmbeddingReturner(Conditioner):
         hidden_dims: Tuple[int, ...] = (),
         model_types = 't5',
         model_names = None,
+        model_kwargs: dict = dict(),
         cond_drop_prob = 0.,
         text_embed_pad_value = 0.
     ):
         super().__init__()
         model_types = cast_tuple(model_types)
         model_names = cast_tuple(model_names, length = len(model_types))
+        model_kwargs = cast_tuple(model_kwargs, length = len(model_types))
 
-        assert len(model_types) == len(model_names)
+        assert len(model_types) == len(model_names) == len(model_kwargs)
         assert all([model_type in MODEL_TYPES for model_type in model_types])
 
         text_models = []
 
-        for model_type, model_name in zip(model_types, model_names):
+        for model_type, model_name, model_kwarg in zip(model_types, model_names, model_kwargs):
             klass = CONDITION_CONFIG.get(model_type)
-            model = klass(model_name, text_embed_pad_value = text_embed_pad_value)
+            model = klass(model_name, text_embed_pad_value = text_embed_pad_value, **model_kwarg)
             text_models.append(model)
 
         self.text_models = text_models
