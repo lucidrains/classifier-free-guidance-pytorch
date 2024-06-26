@@ -36,6 +36,8 @@ class OpenClipAdapter():
         pretrained = default(pretrained, DEFAULT_PRETRAINED_CLIP)
 
         clip, _, preprocess = open_clip.create_model_and_transforms(name, pretrained = pretrained)
+        if torch.cuda.is_available():
+            clip = clip.to("cuda")  
 
         self.clip = clip
         clip.eval()
@@ -81,7 +83,12 @@ class OpenClipAdapter():
         return_text_encodings = False,
         output_device = None
     ):
-        texts = self.tokenizer(texts)
+        if output_device is None:
+            output_device = next(self.clip.parameters()).device
+        elif output_device != next(self.clip.parameters()).device:
+            self.clip = self.clip.to(output_device) 
+         
+        texts = self.tokenizer(texts).to(output_device)
         max_length = (texts != 0).sum(dim=1).max().item()
         texts = texts[..., :self.max_text_len]
 
