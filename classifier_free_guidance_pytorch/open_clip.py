@@ -30,14 +30,16 @@ class OpenClipAdapter():
         self,
         name = DEFAULT_CLIP_NAME,
         pretrained = DEFAULT_PRETRAINED_CLIP,
-        text_embed_pad_value = 0.
+        text_embed_pad_value = 0.,
+        auto_move_clip_cuda = True
     ):
         name = default(name, DEFAULT_CLIP_NAME)
         pretrained = default(pretrained, DEFAULT_PRETRAINED_CLIP)
 
         clip, _, preprocess = open_clip.create_model_and_transforms(name, pretrained = pretrained)
-        if torch.cuda.is_available():
-            clip = clip.to("cuda")  
+
+        if auto_move_clip_cuda and torch.cuda.is_available():
+            clip = clip.cuda()
 
         self.clip = clip
         clip.eval()
@@ -83,9 +85,12 @@ class OpenClipAdapter():
         return_text_encodings = False,
         output_device = None
     ):
-        if output_device is None:
-            output_device = next(self.clip.parameters()).device
-        elif output_device != next(self.clip.parameters()).device:
+        clip_device = next(self.clip.parameters()).device
+
+        if not exists(output_device):
+            output_device = clip_device
+
+        if output_device != clip_device:
             self.clip = self.clip.to(output_device) 
          
         texts = self.tokenizer(texts).to(output_device)
