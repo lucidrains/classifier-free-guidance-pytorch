@@ -59,7 +59,27 @@ def pack_one(x, pattern):
 def unpack_one(x, ps, pattern):
     return unpack(x, ps, pattern)[0]
 
+def pack_one_with_inverse(x, pattern):
+    packed, packed_shape = pack_one(x, pattern)
+
+    def inverse(x, inverse_pattern = None):
+        return unpack_one(x, packed_shape, default(inverse_pattern, pattern))
+
+    return packed, inverse
+
 # tensor helpers
+
+def project(x, y):
+    x, inverse = pack_one_with_inverse(x, 'b *')
+    y, _ = pack_one_with_inverse(y, 'b *')
+
+    x, y = x.double(), y.double()
+    unit = F.normalize(y, dim = -1)
+
+    parallel = (x * unit).sum(dim = -1, keepdim = True) * unit
+    orthogonal = x - parallel
+
+    return inverse(parallel), inverse(orthogonal)
 
 def prob_mask_like(shape, prob, device):
     if prob == 1:
@@ -91,6 +111,8 @@ def classifier_free_guidance(
         cond_scale: float = 1.,
         rescale_phi: float = 0.,
         return_unconditioned: bool = False,
+        remove_parallel_component: bool = False,
+        keep_parallel_frac: float = 0., # in paper, they show complete removal to the best
         cfg_routed_kwargs: Dict[str, Tuple[Any, Any]] = dict(),   # to pass in separate arguments to forward and nulled forward calls (for handling caching when using CFG on transformer decoding)
         **kwargs
     ):
@@ -170,7 +192,13 @@ def classifier_free_guidance(
 
         zipped_rest = tuple(zip(rest, null_rest))
 
-        scaled_logits = null_logits + (logits - null_logits) * cond_scale
+        update = logits - null_logits
+
+        if remove_parallel_component:
+            update_parallel, update_orthog = project(update, logits)
+            update = update_orthog + update_parallel * keep_parallel_frac
+
+        scaled_logits = logits + update * (cond_scale - 1.)
 
         if rescale_phi <= 0:
             logit_output = scaled_logits
