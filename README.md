@@ -153,7 +153,7 @@ pred  = model(data, texts = texts)
 # after much training, you can now do classifier free guidance by passing in a condition scale of > 1. !
 
 model.eval()
-guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands for conditioning scale from classifier free guidance paper
+guided_pred = model(data, texts = texts, cond_scale = 3., remove_parallel_component = True)  # cond_scale stands for conditioning scale from classifier free guidance paper
 
 ```
 
@@ -212,3 +212,13 @@ guided_pred = model(data, texts = texts, cond_scale = 3.)  # cond_scale stands f
     url     = {https://api.semanticscholar.org/CorpusID:270391454}
 }
 ```
+
+```bibtex
+@inproceedings{Sadat2024EliminatingOA,
+    title   = {Eliminating Oversaturation and Artifacts of High Guidance Scales in Diffusion Models},
+    author  = {Seyedmorteza Sadat and Otmar Hilliges and Romann M. Weber},
+    year    = {2024},
+    url     = {https://api.semanticscholar.org/CorpusID:273098845}
+}
+```
+
