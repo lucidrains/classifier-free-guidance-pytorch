@@ -4,6 +4,8 @@ Implementation of <a href="https://arxiv.org/abs/2207.12598">Classifier Free Gui
 
 It is clear now that text guidance is the ultimate interface to models. This repository will leverage some python decorator magic to make it easy to incorporate SOTA text conditioning to any model.
 
+Update: there is a chance that CFG has been obsoleted by [a new paper](https://arxiv.org/abs/2502.12154)
+
 ## Appreciation
 
 - <a href="https://stability.ai/">StabilityAI</a> for the generous sponsorship, as well as my other sponsors out there
